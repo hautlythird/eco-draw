@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, reactive, inject, onMounted, onUnmounted, watch } from 'vue'
-import { useSQLite } from '@/composables/useSQLite'
+import { useBotanicalData } from '@/composables/useBotanicalData'
 
 // ============================================================================
 // COMPONENT STATE
@@ -11,17 +11,18 @@ const emit = defineEmits(['close', 'select', 'favorite'])
 // Get accent color from app theme
 const accentColor = inject('primaryColor', ref('#FF4015'))
 
-// SQLite composable (browser-based, no backend needed!)
+// Smart data loader (auto-detects API or SQLite)
 const { 
-  initDatabase, 
-  getPlants, 
-  searchPlants, 
-  getStats,
-  isLoading: dbLoading, 
+  initDataSource,
+  getPlants: fetchPlants,
+  searchPlants: performSearchQuery,
+  getStats: fetchStats,
+  dataSource,
+  isLocalhost,
+  isLoading: dataLoading,
   isInitialized,
-  error: dbError,
-  closeDatabase
-} = useSQLite()
+  error: dataError
+} = useBotanicalData()
 
 // UI State
 const selectedCategory = ref('ALL')
@@ -75,24 +76,19 @@ const categories = [
 // DATA LOADING
 // ============================================================================
 
-// Initialize database and load data
+// Initialize data source and load data
 onMounted(async () => {
   try {
-    // Initialize the database (loads from /botanical_library.db)
-    await initDatabase('/botanical_library.db')
+    // Auto-detect and initialize data source (API or SQLite)
+    await initDataSource()
     
     // Load initial data
     await loadPlants()
     await loadStats()
   } catch (err) {
-    loadError.value = 'Failed to initialize database: ' + err.message
-    console.error('Database initialization failed:', err)
+    loadError.value = 'Failed to initialize: ' + err.message
+    console.error('Initialization failed:', err)
   }
-})
-
-// Cleanup on unmount
-onUnmounted(() => {
-  closeDatabase()
 })
 
 // Watch for filter changes and reload data
@@ -104,8 +100,8 @@ watch([selectedCategory, () => activeFilters.origin, () => activeFilters.hasWarn
   }
 )
 
-// Load plants from SQLite database
-const loadPlants = () => {
+// Load plants from data source
+const loadPlants = async () => {
   if (!isInitialized.value) {
     return
   }
@@ -122,7 +118,7 @@ const loadPlants = () => {
       minNutrition: activeFilters.minNutritionScore > 0 ? activeFilters.minNutritionScore : undefined
     }
     
-    allItems.value = getPlants(filters)
+    allItems.value = await fetchPlants(filters)
   } catch (err) {
     loadError.value = err.message
     console.error('Failed to load plants:', err)
@@ -133,26 +129,26 @@ const loadPlants = () => {
 }
 
 // Load statistics
-const loadStats = () => {
+const loadStats = async () => {
   if (!isInitialized.value) {
     return
   }
 
   try {
-    dbStats.value = getStats()
+    dbStats.value = await fetchStats()
   } catch (err) {
     console.error('Failed to load stats:', err)
   }
 }
 
 // Search plants
-const performSearch = (query) => {
+const performSearch = async (query) => {
   if (!isInitialized.value) {
     return
   }
 
   if (!query || query.trim().length === 0) {
-    loadPlants()
+    await loadPlants()
     return
   }
   
@@ -160,7 +156,7 @@ const performSearch = (query) => {
   loadError.value = null
   
   try {
-    allItems.value = searchPlants(query)
+    allItems.value = await performSearchQuery(query)
   } catch (err) {
     loadError.value = err.message
     console.error('Search failed:', err)
@@ -299,7 +295,7 @@ const selectItem = (item) => {
   emit('select', item)
 }
 
-const clearFilters = () => {
+const clearFilters = async () => {
   selectedCategory.value = 'ALL'
   activeFilters.origin = 'ALL'
   activeFilters.hasWarning = false
@@ -308,7 +304,7 @@ const clearFilters = () => {
   searchQuery.value = ''
   debouncedSearch.value = ''
   currentPage.value = 1
-  loadPlants()
+  await loadPlants()
 }
 
 const getItemIcon = (type) => {
@@ -355,15 +351,15 @@ const getScoreColor = (score) => {
 const handleSearchInput = (event) => {
   searchQuery.value = event.target.value
   clearTimeout(searchTimeout)
-  searchTimeout = setTimeout(() => {
+  searchTimeout = setTimeout(async () => {
     debouncedSearch.value = searchQuery.value
     currentPage.value = 1
     
     // Use full-text search for better performance
     if (searchQuery.value.length > 2) {
-      performSearch(searchQuery.value)
+      await performSearch(searchQuery.value)
     } else if (searchQuery.value.length === 0) {
-      loadPlants()
+      await loadPlants()
     }
   }, 300)
 }
