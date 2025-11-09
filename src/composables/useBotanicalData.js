@@ -91,7 +91,7 @@ export function useBotanicalData() {
 
       // Use browser SQLite (production or API not available)
       console.log('  Initializing browser SQLite...')
-      await sqliteComposable.initDatabase('/botanical_library.db')
+      await sqliteComposable.initDatabase('/ecodraw/botanical_library.db')
       console.log('  ✓ Browser SQLite initialized')
       dataSource.value = 'sqlite'
       return 'sqlite'
@@ -196,7 +196,7 @@ export function useBotanicalData() {
         throw new Error('Flask API not available at http://localhost:5000')
       }
     } else if (source === 'sqlite') {
-      await sqliteComposable.initDatabase('/botanical_library.db')
+      await sqliteComposable.initDatabase('/ecodraw/botanical_library.db')
     }
 
     dataSource.value = source
