@@ -9,7 +9,7 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.22
   sql.js:
-    specifier: ^1.10.3
+    specifier: ^1.13.0
     version: 1.13.0
   vue:
     specifier: ^3.5.0

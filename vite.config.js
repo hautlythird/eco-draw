@@ -6,6 +6,7 @@ import { copyFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export default defineConfig({
+  base: '/ecodraw/',
   plugins: [
     vue(),
     // Copy SQLite database to public folder
@@ -15,11 +16,17 @@ export default defineConfig({
         const dbSource = resolve(__dirname, 'src/components/Library/botanical_library.db')
         const dbDest = resolve(__dirname, 'public/botanical_library.db')
         
-        if (existsSync(dbSource)) {
-          copyFileSync(dbSource, dbDest)
-          console.log('✓ Copied botanical_library.db to public folder')
-        } else {
-          console.warn('⚠ botanical_library.db not found, run: python src/components/Library/convert_to_sqlite.py')
+        try {
+          if (existsSync(dbSource)) {
+            copyFileSync(dbSource, dbDest)
+            console.log('✓ Copied botanical_library.db to public folder')
+          } else {
+            console.warn('\n⚠ WARNING: botanical_library.db not found!')
+            console.warn('  The Botanical Library will not work until you create the database.')
+            console.warn('  Run: python src/components/Library/convert_to_sqlite.py\n')
+          }
+        } catch (err) {
+          console.warn('⚠ Could not copy database:', err.message)
         }
       }
     },
