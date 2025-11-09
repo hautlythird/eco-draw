@@ -19,7 +19,7 @@ export function useSQLite() {
   /**
    * Initialize sql.js and load the database
    */
-  const initDatabase = async (dbPath = '/botanical_library.db') => {
+  const initDatabase = async (dbPath = `${import.meta.env.BASE_URL}botanical_library.db`) => {
     if (isInitialized.value) {
       return db.value
     }

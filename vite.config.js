@@ -32,7 +32,6 @@ export default defineConfig({
     },
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
       manifest: {
         name: 'EcoDraw - Botanical Drawing App',
         short_name: 'EcoDraw',
@@ -40,25 +39,7 @@ export default defineConfig({
         theme_color: '#FF4015',
         background_color: '#0a0a0a',
         display: 'standalone',
-        orientation: 'landscape',
-        icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ]
+        orientation: 'landscape'
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,db}'],
