@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, provide } from 'vue'
+import { ref, computed, provide, watch } from 'vue'
 import EditorCanvas from './components/Editor/EditorCanvas.vue'
 import Sidebar from './components/Editor/Sidebar.vue'
 import Toolbar from './components/Editor/Toolbar.vue'
@@ -8,6 +8,8 @@ import BotanicalLibrary from './components/Library/BotanicalLibrary.vue'
 import KeyboardShortcuts from './components/Editor/KeyboardShortcuts.vue'
 import GridGuide from './components/Editor/GridGuide.vue'
 import ExportDialog from './components/Editor/ExportDialog.vue'
+import ProjectsGallery from './components/Editor/ProjectsGallery.vue'
+import RightPanel from './components/Editor/RightPanel.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import ErrorBoundary from './components/ErrorBoundary.vue'
 import AccessibilityMenu from './components/AccessibilityMenu.vue'
@@ -17,6 +19,7 @@ import { useTheme } from './composables/useTheme'
 import { useKeyboard } from './composables/useKeyboard'
 import { useLocalStorage } from './composables/useLocalStorage'
 import { useZoom } from './composables/useZoom'
+import { useProjects } from './composables/useProjects'
 import { logger } from './utils/logger'
 
 const showSplash = ref(true)
@@ -24,17 +27,35 @@ const showLibrary = ref(false)
 const showShortcuts = ref(false)
 const showExport = ref(false)
 const showAccessibility = ref(false)
+const showProjects = ref(false)
 const showGrid = ref(true)
 const currentTool = ref('brush')
 const currentToolOption = ref('pencil')
 const canvasRef = ref(null)
 const canvasSize = ref({ width: 20, height: 15 }) // in meters
+const projectName = ref('')
 
 // Use composables for better state management
 const { color: brushColor, thickness: brushThickness, hardness: brushHardness, opacity: brushOpacity } = useBrush()
 const { canUndo, canRedo } = useHistory()
 const { primaryColor } = useTheme()
 const { zoomIn, zoomOut, resetZoom } = useZoom()
+const { 
+  currentProjectId, 
+  currentProject,
+  openProjects,
+  saveProject, 
+  loadProject,
+  switchToProject,
+  closeProject,
+  updateThumbnail,
+  createNewProject,
+  markUnsaved,
+  markSaved
+} = useProjects()
+
+// Store canvas data for each open project
+const projectCanvasData = ref(new Map())
 
 // Sync brush color with theme color
 const syncedBrushColor = computed({
@@ -168,16 +189,129 @@ const handleSave = () => {
   if (canvasRef.value) {
     const data = canvasRef.value.getCanvasData()
     logger.log('Saving canvas data:', data)
-    // Implement save functionality (e.g., download as JSON or image)
+    
+    // Get project name from user if not set
+    let name = projectName.value || currentProject.value?.name
+    if (!name) {
+      name = prompt('Enter project name:', `Project ${new Date().toLocaleString()}`)
+      if (!name) return // User cancelled
+      projectName.value = name
+    }
+    
+    // Save to localStorage
+    const projectId = saveProject(data, name)
+    
+    // Mark as saved
+    if (projectId) {
+      markSaved(projectId)
+      
+      // Update in-memory data
+      projectCanvasData.value.set(projectId, data)
+      
+      // Generate and save thumbnail
+      try {
+        const stage = canvasRef.value.getStage()
+        if (stage) {
+          const thumbnail = stage.toDataURL({ pixelRatio: 0.2 })
+          updateThumbnail(projectId, thumbnail)
+        }
+      } catch (error) {
+        logger.error('Failed to generate thumbnail:', error)
+      }
+    }
+    
+    // Also download as JSON
     const dataStr = JSON.stringify(data, null, 2)
     const dataBlob = new Blob([dataStr], { type: 'application/json' })
     const url = URL.createObjectURL(dataBlob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `ecodraw-${Date.now()}.json`
+    link.download = `${name.replace(/[^a-z0-9]/gi, '_')}-${Date.now()}.json`
     link.click()
     URL.revokeObjectURL(url)
+    
+    logger.log('Project saved:', name)
   }
+}
+
+const handleLoadProject = (projectId) => {
+  // Save current project data before switching
+  if (currentProjectId.value && canvasRef.value) {
+    const currentData = canvasRef.value.getCanvasData()
+    projectCanvasData.value.set(currentProjectId.value, currentData)
+  }
+  
+  // Load the new project
+  const data = loadProject(projectId)
+  if (data && canvasRef.value) {
+    canvasRef.value.loadCanvas(data)
+    projectName.value = currentProject.value?.name || ''
+    logger.log('Project loaded:', projectName.value)
+    showProjects.value = false // Close gallery after loading
+  }
+}
+
+const handleSwitchProject = (projectId) => {
+  // Save current project data before switching
+  if (currentProjectId.value && canvasRef.value) {
+    const currentData = canvasRef.value.getCanvasData()
+    projectCanvasData.value.set(currentProjectId.value, currentData)
+  }
+  
+  // Check if project data is already in memory
+  if (projectCanvasData.value.has(projectId)) {
+    const data = projectCanvasData.value.get(projectId)
+    if (canvasRef.value) {
+      canvasRef.value.loadCanvas(data)
+    }
+  } else {
+    // Load from storage
+    const data = switchToProject(projectId)
+    if (data && canvasRef.value) {
+      canvasRef.value.loadCanvas(data)
+      projectCanvasData.value.set(projectId, data)
+    }
+  }
+  
+  projectName.value = currentProject.value?.name || ''
+  logger.log('Switched to project:', projectName.value)
+}
+
+const handleCloseProject = (projectId) => {
+  // Remove from memory
+  projectCanvasData.value.delete(projectId)
+  closeProject(projectId)
+  
+  // Load the new current project if one exists
+  if (currentProjectId.value && currentProjectId.value !== projectId) {
+    handleSwitchProject(currentProjectId.value)
+  } else if (canvasRef.value) {
+    // Clear canvas if no projects open
+    canvasRef.value.clear()
+    projectName.value = ''
+  }
+}
+
+const handleNewProject = () => {
+  // Save current project data before creating new
+  if (currentProjectId.value && canvasRef.value) {
+    const currentData = canvasRef.value.getCanvasData()
+    projectCanvasData.value.set(currentProjectId.value, currentData)
+  }
+  
+  const newId = createNewProject()
+  
+  // Clear canvas for new project
+  if (canvasRef.value) {
+    canvasRef.value.clear()
+  }
+  
+  projectName.value = currentProject.value?.name || ''
+  logger.log('New project created')
+}
+
+const handleOpenProjects = () => {
+  showProjects.value = true
 }
 
 const handleCanvasSizeChange = (size) => {
@@ -186,12 +320,24 @@ const handleCanvasSizeChange = (size) => {
   // The canvas will automatically adjust based on the new size
 }
 
+const handleLayerSelect = (layerId, multiSelect) => {
+  // Layer selection is handled by the layer system
+  logger.log('Layer selected:', layerId, 'Multi:', multiSelect)
+}
+
+const handleLayerDelete = (layerId) => {
+  // Layer deletion is handled by the layer system
+  logger.log('Layer deleted:', layerId)
+}
+
 // Keyboard shortcuts using composable with centralized zoom
 useKeyboard({
   'ctrl+z': handleUndo,
   'ctrl+shift+z': handleRedo,
   'ctrl+y': handleRedo,
   'ctrl+s': handleSave,
+  'ctrl+o': handleOpenProjects,
+  'ctrl+n': handleNewProject,
   'ctrl+=': zoomIn,
   'ctrl++': zoomIn,
   'ctrl+-': zoomOut,
@@ -211,6 +357,44 @@ useKeyboard({
   'ctrl+e': () => showExport.value = true,
   'ctrl+shift+a': () => showAccessibility.value = true
 })
+
+// Watch for current project changes
+watch(currentProject, (project) => {
+  if (project) {
+    projectName.value = project.name
+  }
+})
+
+// Watch for canvas changes to mark as unsaved
+let changeTimeout = null
+const handleCanvasChange = () => {
+  if (currentProjectId.value) {
+    markUnsaved(currentProjectId.value)
+    
+    // Auto-save current state to memory
+    clearTimeout(changeTimeout)
+    changeTimeout = setTimeout(() => {
+      if (canvasRef.value && currentProjectId.value) {
+        const data = canvasRef.value.getCanvasData()
+        projectCanvasData.value.set(currentProjectId.value, data)
+      }
+    }, 1000)
+  }
+}
+
+// Initialize with a new project on startup
+const initializeApp = () => {
+  if (openProjects.value.length === 0) {
+    handleNewProject()
+  }
+}
+
+// Call initialization after splash screen
+watch(showSplash, (isShowing) => {
+  if (!isShowing) {
+    initializeApp()
+  }
+})
 </script>
 
 <template>
@@ -222,6 +406,8 @@ useKeyboard({
       @tool-change="handleToolChange"
       @canvas-size-change="handleCanvasSizeChange"
       @color-change="handleColorChange"
+      @layer-select="handleLayerSelect"
+      @layer-delete="handleLayerDelete"
     />
     
     <div class="main-content">
@@ -235,6 +421,7 @@ useKeyboard({
         @undo="handleUndo"
         @redo="handleRedo"
         @save="handleSave"
+        @open-projects="handleOpenProjects"
         @toggle-grid="showGrid = !showGrid; preferences.showGrid = showGrid"
         @export="showExport = true"
       />
@@ -249,8 +436,17 @@ useKeyboard({
         :brush-opacity="brushOpacity"
         :show-grid="showGrid"
         :canvas-size="canvasSize"
+        @mouseup="handleCanvasChange"
+        @touchend="handleCanvasChange"
       />
     </div>
+
+    <RightPanel
+      @switch-project="handleSwitchProject"
+      @close-project="handleCloseProject"
+      @new-project="handleNewProject"
+      @open-gallery="handleOpenProjects"
+    />
 
     <BrushControls
       :current-tool="currentTool"
@@ -266,7 +462,11 @@ useKeyboard({
       @close="showLibrary = false"
     />
 
-
+    <ProjectsGallery
+      v-if="showProjects"
+      @close="showProjects = false"
+      @load-project="handleLoadProject"
+    />
 
     <ExportDialog
       v-if="showExport"

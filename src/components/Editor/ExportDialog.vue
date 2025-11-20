@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import IconDownload from '../Icons/IconDownload.vue'
 
 const props = defineProps({
@@ -10,15 +10,36 @@ const emit = defineEmits(['close'])
 
 const exportFormat = ref('png')
 const exportQuality = ref(100)
-const exportScale = ref(1)
+const exportScale = ref(2)
 const isExporting = ref(false)
+const jsPDFLoaded = ref(false)
 
 const formats = [
-  { id: 'png', label: 'PNG', desc: 'High quality with transparency' },
+  { id: 'png', label: 'PNG', desc: '🌿 Garden plan image' },
+  { id: 'pdf', label: 'PDF', desc: '📄 Printable document' },
   { id: 'jpg', label: 'JPG', desc: 'Smaller file size' },
-  { id: 'svg', label: 'SVG', desc: 'Vector format (scalable)' },
   { id: 'json', label: 'JSON', desc: 'Project data' }
 ]
+
+// Load jsPDF library
+onMounted(() => {
+  const script = document.createElement('script')
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+  script.onload = () => {
+    jsPDFLoaded.value = true
+  }
+  script.onerror = () => {
+    console.error('Failed to load jsPDF library')
+  }
+  document.head.appendChild(script)
+})
+
+onUnmounted(() => {
+  const script = document.querySelector('script[src*="jspdf"]')
+  if (script) {
+    document.head.removeChild(script)
+  }
+})
 
 const handleExport = async () => {
   if (!props.canvasRef) return
@@ -33,11 +54,13 @@ const handleExport = async () => {
       const url = URL.createObjectURL(dataBlob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `ecodraw-${Date.now()}.json`
+      link.download = `agroecological-garden-${Date.now()}.json`
       link.click()
       URL.revokeObjectURL(url)
+    } else if (exportFormat.value === 'pdf') {
+      await handlePDFExport()
     } else {
-      // Export only the neon border area (export area)
+      // Export PNG/JPG with high quality for garden plans
       const dataURL = props.canvasRef.getCanvasDataURL(
         exportFormat.value,
         exportQuality.value / 100
@@ -46,7 +69,7 @@ const handleExport = async () => {
       if (dataURL) {
         const link = document.createElement('a')
         link.href = dataURL
-        link.download = `ecodraw-${Date.now()}.${exportFormat.value}`
+        link.download = `agroecological-garden-${Date.now()}.${exportFormat.value}`
         link.click()
       }
     }
@@ -59,6 +82,93 @@ const handleExport = async () => {
     console.error('Export failed:', error)
     isExporting.value = false
   }
+}
+
+const handlePDFExport = async () => {
+  if (!jsPDFLoaded.value || !window.jspdf) {
+    alert('PDF library is still loading. Please try again in a moment.')
+    return
+  }
+
+  const { jsPDF } = window.jspdf
+  
+  // Export canvas as high-quality PNG (same as PNG export)
+  const canvas = props.canvasRef.exportCanvas()
+  if (!canvas) {
+    throw new Error('Failed to export canvas')
+  }
+
+  // Convert canvas to data URL with high quality
+  const dataURL = canvas.toDataURL('image/png', 1.0)
+  
+  // Get actual canvas dimensions in pixels
+  const canvasWidth = canvas.width
+  const canvasHeight = canvas.height
+  
+  // Calculate PDF dimensions to match canvas aspect ratio exactly
+  const aspectRatio = canvasWidth / canvasHeight
+  
+  // Calculate PDF page size to fit canvas perfectly (no borders, no padding)
+  // Use pixels as unit and convert to mm (1 pixel ≈ 0.264583 mm at 96 DPI)
+  const pxToMm = 0.264583
+  const pdfWidth = canvasWidth * pxToMm
+  const pdfHeight = canvasHeight * pxToMm
+  
+  // Create PDF with custom dimensions matching the canvas exactly
+  const pdf = new jsPDF({
+    orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
+    unit: 'mm',
+    format: [pdfWidth, pdfHeight],
+    compress: true
+  })
+
+  // Add canvas image filling the entire PDF page (no padding, no borders)
+  pdf.addImage(
+    dataURL,
+    'PNG',
+    0, // x position - start at 0
+    0, // y position - start at 0
+    pdfWidth, // full width
+    pdfHeight, // full height
+    undefined,
+    'SLOW' // Use SLOW for better quality
+  )
+  
+  // Save the PDF
+  pdf.save(`agroecological-garden-${Date.now()}.pdf`)
+}
+
+const handleImport = () => {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json,application/json'
+  input.onchange = async (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      try {
+        const text = await file.text()
+        const data = JSON.parse(text)
+        
+        // Validate the data structure
+        if (data && typeof data === 'object') {
+          // Load the canvas data
+          if (props.canvasRef && props.canvasRef.loadCanvas) {
+            props.canvasRef.loadCanvas(data)
+            alert('Garden plan imported successfully!')
+            emit('close')
+          } else {
+            throw new Error('Canvas reference not available')
+          }
+        } else {
+          throw new Error('Invalid JSON format')
+        }
+      } catch (error) {
+        console.error('Import failed:', error)
+        alert('Failed to import garden plan. Please check the file format.')
+      }
+    }
+  }
+  input.click()
 }
 </script>
 
@@ -94,7 +204,7 @@ const handleExport = async () => {
             </div>
           </div>
 
-          <div v-if="exportFormat !== 'json' && exportFormat !== 'svg'" class="settings-section">
+          <div v-if="exportFormat === 'png' || exportFormat === 'jpg'" class="settings-section">
             <div class="setting-item">
               <label>Quality: {{ exportQuality }}%</label>
               <input 
@@ -107,7 +217,7 @@ const handleExport = async () => {
             </div>
 
             <div class="setting-item">
-              <label>Scale: {{ exportScale }}x</label>
+              <label>Resolution: {{ exportScale }}x</label>
               <input 
                 type="range" 
                 min="1" 
@@ -116,7 +226,42 @@ const handleExport = async () => {
                 v-model="exportScale"
                 class="slider"
               />
+              <div class="scale-hint">Higher resolution = larger file size</div>
             </div>
+          </div>
+
+          <div v-if="exportFormat === 'pdf'" class="pdf-info">
+            <div class="info-card">
+              <svg viewBox="0 0 24 24" fill="currentColor" class="info-icon">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+              </svg>
+              <div class="info-text">
+                <strong>PDF Export</strong>
+                <p>Your garden plan will be exported as a high-quality PDF document with the exact canvas dimensions (no borders or margins).</p>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="exportFormat === 'json'" class="json-info">
+            <div class="info-card">
+              <svg viewBox="0 0 24 24" fill="currentColor" class="info-icon">
+                <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+              </svg>
+              <div class="info-text">
+                <strong>Project Data</strong>
+                <p>Save your complete garden design including all layers, shapes, and settings. You can import this file later to continue editing.</p>
+              </div>
+            </div>
+            
+            <button 
+              class="import-btn"
+              @click="handleImport"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
+              </svg>
+              Import JSON
+            </button>
           </div>
 
           <button 
@@ -126,7 +271,7 @@ const handleExport = async () => {
           >
             <IconDownload v-if="!isExporting" />
             <div v-else class="spinner"></div>
-            {{ isExporting ? 'Exporting...' : 'Export' }}
+            {{ isExporting ? 'Exporting...' : exportFormat === 'json' ? 'Export Project' : 'Export' }}
           </button>
         </div>
       </div>
@@ -372,6 +517,85 @@ const handleExport = async () => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.scale-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4px;
+}
+
+.pdf-info,
+.json-info {
+  padding: 16px;
+  background: rgba(101, 255, 134, 0.05);
+  border: 1px solid rgba(101, 255, 134, 0.2);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.info-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.info-icon {
+  width: 24px;
+  height: 24px;
+  color: rgba(101, 255, 134, 0.8);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.info-text {
+  flex: 1;
+}
+
+.info-text strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(101, 255, 134, 0.9);
+  margin-bottom: 6px;
+}
+
+.info-text p {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.import-btn {
+  width: 100%;
+  padding: 12px;
+  background: rgba(101, 255, 134, 0.1);
+  border: 2px solid rgba(101, 255, 134, 0.3);
+  border-radius: 10px;
+  color: rgba(101, 255, 134, 0.95);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.2s ease;
+}
+
+.import-btn:hover {
+  background: rgba(101, 255, 134, 0.15);
+  border-color: rgba(101, 255, 134, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(101, 255, 134, 0.2);
+}
+
+.import-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 .fade-enter-active,

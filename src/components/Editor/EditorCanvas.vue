@@ -3,10 +3,12 @@ vue
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useHistory } from '@/composables/useHistory'
 import { useZoom } from '@/composables/useZoom'
+import { useLayers } from '@/composables/useLayers'
 import { CANVAS_CONFIG, GRID_SCALES, PLANT_SPACING } from '@/constants/tools'
 import { generateElementId } from '@/utils/idGenerator'
 import { logger } from '@/utils/logger'
 import StaticGridLayer from './StaticGridLayer.vue'
+import LayerTransformer from './LayerTransformer.vue'
 
 
 const throttle = (func, delay) => {
@@ -118,13 +120,29 @@ const images = ref([])
 const texts = ref([])
 const isDrawing = ref(false)
 const selectedElement = ref(null)
-const selectedElements = ref([])
 const showTagDialog = ref(false)
 const tagDialogPosition = ref({ x: 0, y: 0 })
 const currentTag = ref('')
 const editingElement = ref(null)
 const isEditingLabel = ref(false)
 const { saveHistory, undo, redo } = useHistory()
+
+// Layer system integration
+const {
+  layers,
+  selectedLayerIds,
+  selectedElements,
+  createLayer,
+  selectLayer,
+  clearSelection,
+  isLayerSelected,
+  deleteLayer,
+  syncLayersFromElements
+} = useLayers()
+
+// Transformer ref
+const transformerRef = ref(null)
+const konvaNodesMap = ref(new Map()) // Map element IDs to Konva nodes
 
 // 🌱 Agroecological overlay features
 const showCompanionCircles = ref(true)
@@ -171,16 +189,23 @@ const deleteSelectedElements = () => {
   const idsToDelete = new Set(selectedElements.value.map(e => e.id))
   
   // Filter out the elements to delete
+  lines.value = lines.value.filter(l => !idsToDelete.has(l.id))
   shapes.value = shapes.value.filter(s => !idsToDelete.has(s.id))
   images.value = images.value.filter(i => !idsToDelete.has(i.id))
   texts.value = texts.value.filter(t => !idsToDelete.has(t.id))
   
+  // Delete layers
+  selectedLayerIds.value.forEach(layerId => {
+    deleteLayer(layerId)
+  })
+  
   // Clear selection
-  selectedElements.value = []
+  clearSelection()
   
   // Force reactivity update
   nextTick(() => {
     saveHistory({ lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value })
+    syncLayersFromElements(lines.value, shapes.value, images.value, texts.value)
   })
 }
 
@@ -194,7 +219,7 @@ const handleKeyDown = (e) => {
   
   // Escape to deselect
   if (e.key === 'Escape') {
-    selectedElements.value = []
+    clearSelection()
   }
 }
 
@@ -388,6 +413,9 @@ defineExpose({
     images.value = []
     texts.value = []
     saveHistory({ lines: [], shapes: [], images: [], texts: [] })
+  },
+  getStage: () => {
+    return stageRef.value ? stageRef.value.getStage() : null
   },
   exportCanvas: () => {
     // Export only the area within the neon border (export area)
@@ -741,8 +769,13 @@ const handleMouseDown = (e) => {
 }
 
 // Handle element click for tagging and selection
-const handleElementClick = (element, event) => {
+const handleElementClick = (element, event, konvaNode) => {
   try {
+    // Store Konva node reference
+    if (konvaNode) {
+      konvaNodesMap.value.set(element.id, konvaNode)
+    }
+    
     if (event.evt.button === 2) { // Right click
       event.evt.preventDefault()
       selectedElement.value = element
@@ -752,19 +785,9 @@ const handleElementClick = (element, event) => {
       tagDialogPosition.value = { x: pos.x, y: pos.y }
       showTagDialog.value = true
     } else if (event.evt.button === 0) { // Left click
-      // Handle selection
-      if (event.evt.ctrlKey || event.evt.metaKey) {
-        // Multi-select
-        const index = selectedElements.value.findIndex(e => e.id === element.id)
-        if (index > -1) {
-          selectedElements.value.splice(index, 1)
-        } else {
-          selectedElements.value.push(element)
-        }
-      } else {
-        // Single select
-        selectedElements.value = [element]
-      }
+      // Handle selection with layer system
+      const multiSelect = event.evt.ctrlKey || event.evt.metaKey
+      selectLayer(element.id, multiSelect)
     }
   } catch (error) {
     logger.error('Error in handleElementClick:', error)
@@ -1143,6 +1166,23 @@ watch(() => props.canvasSize, (newSize) => {
   // Grid will auto-update via computed properties
 }, { deep: true })
 
+// Sync layers whenever elements change
+watch([lines, shapes, images, texts], () => {
+  syncLayersFromElements(lines.value, shapes.value, images.value, texts.value)
+}, { deep: true })
+
+// Get selected Konva nodes for transformer
+const selectedKonvaNodes = computed(() => {
+  const nodes = []
+  selectedElements.value.forEach(element => {
+    const node = konvaNodesMap.value.get(element.id)
+    if (node) {
+      nodes.push(node)
+    }
+  })
+  return nodes
+})
+
 // Grid auto-updates via computed properties - no watch needed
 
 // Initialize and handle window resize
@@ -1489,7 +1529,24 @@ onUnmounted(() => {
         
         <!-- Draw all rectangles with labels grouped together -->
         <template v-for="shape in shapes.filter(s => s.type === 'rect')" :key="`rect-group-${shape.id}`">
+          <!-- Layer border for selected elements -->
           <v-rect
+            v-if="isLayerSelected(shape.id)"
+            :key="`rect-border-${shape.id}`"
+            :config="{
+              x: shape.x - 5,
+              y: shape.y - 5,
+              width: shape.width + 10,
+              height: shape.height + 10,
+              stroke: props.brushColor,
+              strokeWidth: 2,
+              dash: [8, 4],
+              listening: false,
+              opacity: 0.6
+            }"
+          />
+          <v-rect
+            :ref="(el) => { if (el) konvaNodesMap.set(shape.id, el.getNode()) }"
             :config="{
               ...shape,
               id: shape.id,
@@ -1498,8 +1555,8 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
-            @click="handleElementClick(shape, $event)"
-            @tap="handleElementClick(shape, $event)"
+            @click="(e) => handleElementClick(shape, e, e.target)"
+            @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
             @dbltap="handleElementDoubleClick(shape, $event)"
           />
@@ -1560,7 +1617,23 @@ onUnmounted(() => {
         
         <!-- Draw all circles with labels grouped together -->
         <template v-for="shape in shapes.filter(s => s.type === 'circle')" :key="`circle-group-${shape.id}`">
+          <!-- Layer border for selected elements -->
           <v-circle
+            v-if="isLayerSelected(shape.id)"
+            :key="`circle-border-${shape.id}`"
+            :config="{
+              x: shape.x,
+              y: shape.y,
+              radius: shape.radius + 5,
+              stroke: props.brushColor,
+              strokeWidth: 2,
+              dash: [8, 4],
+              listening: false,
+              opacity: 0.6
+            }"
+          />
+          <v-circle
+            :ref="(el) => { if (el) konvaNodesMap.set(shape.id, el.getNode()) }"
             :config="{
               ...shape,
               id: shape.id,
@@ -1569,8 +1642,8 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
-            @click="handleElementClick(shape, $event)"
-            @tap="handleElementClick(shape, $event)"
+            @click="(e) => handleElementClick(shape, e, e.target)"
+            @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
             @dbltap="handleElementDoubleClick(shape, $event)"
           />
@@ -1631,7 +1704,24 @@ onUnmounted(() => {
         
         <!-- Draw all ellipses with labels grouped together -->
         <template v-for="shape in shapes.filter(s => s.type === 'ellipse')" :key="`ellipse-group-${shape.id}`">
+          <!-- Layer border for selected elements -->
           <v-ellipse
+            v-if="isLayerSelected(shape.id)"
+            :key="`ellipse-border-${shape.id}`"
+            :config="{
+              x: shape.x,
+              y: shape.y,
+              radiusX: shape.radiusX + 5,
+              radiusY: shape.radiusY + 5,
+              stroke: props.brushColor,
+              strokeWidth: 2,
+              dash: [8, 4],
+              listening: false,
+              opacity: 0.6
+            }"
+          />
+          <v-ellipse
+            :ref="(el) => { if (el) konvaNodesMap.set(shape.id, el.getNode()) }"
             :config="{
               ...shape,
               id: shape.id,
@@ -1640,8 +1730,8 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
-            @click="handleElementClick(shape, $event)"
-            @tap="handleElementClick(shape, $event)"
+            @click="(e) => handleElementClick(shape, e, e.target)"
+            @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
             @dbltap="handleElementDoubleClick(shape, $event)"
           />
@@ -1702,7 +1792,23 @@ onUnmounted(() => {
         
         <!-- Draw all triangles with labels grouped together -->
         <template v-for="shape in shapes.filter(s => s.type === 'triangle' || s.type === 'right-triangle')" :key="`triangle-group-${shape.id}`">
+          <!-- Layer border for selected elements -->
+          <v-circle
+            v-if="isLayerSelected(shape.id)"
+            :key="`triangle-border-${shape.id}`"
+            :config="{
+              x: shape.x,
+              y: shape.y,
+              radius: shape.radius + 5,
+              stroke: props.brushColor,
+              strokeWidth: 2,
+              dash: [8, 4],
+              listening: false,
+              opacity: 0.6
+            }"
+          />
           <v-regular-polygon
+            :ref="(el) => { if (el) konvaNodesMap.set(shape.id, el.getNode()) }"
             :config="{
               ...shape,
               id: shape.id,
@@ -1711,8 +1817,8 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
-            @click="handleElementClick(shape, $event)"
-            @tap="handleElementClick(shape, $event)"
+            @click="(e) => handleElementClick(shape, e, e.target)"
+            @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
             @dbltap="handleElementDoubleClick(shape, $event)"
           />
@@ -1773,13 +1879,30 @@ onUnmounted(() => {
         
         <!-- Draw all images -->
         <template v-for="(img, i) in images" :key="`image-group-${img.id || i}`">
+          <!-- Layer border for selected elements -->
+          <v-rect
+            v-if="isLayerSelected(img.id)"
+            :key="`image-border-${img.id || i}`"
+            :config="{
+              x: img.x - 5,
+              y: img.y - 5,
+              width: (img.width || 100) + 10,
+              height: (img.height || 100) + 10,
+              stroke: props.brushColor,
+              strokeWidth: 2,
+              dash: [8, 4],
+              listening: false,
+              opacity: 0.6
+            }"
+          />
           <v-image
+            :ref="(el) => { if (el) konvaNodesMap.set(img.id, el.getNode()) }"
             :config="{
               ...img,
               id: img.id
             }"
-            @click="handleElementClick(img, $event)"
-            @tap="handleElementClick(img, $event)"
+            @click="(e) => handleElementClick(img, e, e.target)"
+            @tap="(e) => handleElementClick(img, e, e.target)"
             @dblclick="handleElementDoubleClick(img, $event)"
             @dbltap="handleElementDoubleClick(img, $event)"
           />
@@ -1840,13 +1963,30 @@ onUnmounted(() => {
         
         <!-- Draw all texts -->
         <template v-for="(text, i) in texts" :key="`text-group-${text.id || i}`">
+          <!-- Layer border for selected elements -->
+          <v-rect
+            v-if="isLayerSelected(text.id)"
+            :key="`text-border-${text.id || i}`"
+            :config="{
+              x: text.x - 5,
+              y: text.y - 5,
+              width: (text.text?.length || 5) * (text.fontSize || 24) * 0.6 + 10,
+              height: (text.fontSize || 24) + 10,
+              stroke: props.brushColor,
+              strokeWidth: 2,
+              dash: [8, 4],
+              listening: false,
+              opacity: 0.6
+            }"
+          />
           <v-text
+            :ref="(el) => { if (el) konvaNodesMap.set(text.id, el.getNode()) }"
             :config="{
               ...text,
               id: text.id
             }"
-            @click="handleElementClick(text, $event)"
-            @tap="handleElementClick(text, $event)"
+            @click="(e) => handleElementClick(text, e, e.target)"
+            @tap="(e) => handleElementClick(text, e, e.target)"
             @dblclick="handleElementDoubleClick(text, $event)"
             @dbltap="handleElementDoubleClick(text, $event)"
           />
@@ -1904,6 +2044,13 @@ onUnmounted(() => {
             />
           </template>
         </template>
+        
+        <!-- Layer Transformer for selected elements -->
+        <LayerTransformer
+          ref="transformerRef"
+          :selected-nodes="selectedKonvaNodes"
+          :stage-ref="stageRef"
+        />
       </v-layer>
     </v-stage>
     

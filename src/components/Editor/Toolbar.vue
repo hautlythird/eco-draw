@@ -16,6 +16,7 @@ import IconZoomOut from '../Icons/IconZoomOut.vue'
 import IconSave from '../Icons/IconSave.vue'
 import IconGrid from '../Icons/IconGrid.vue'
 import IconDownload from '../Icons/IconDownload.vue'
+import IconProjects from '../Icons/IconProjects.vue'
 
 const props = defineProps({
   currentTool: String,
@@ -25,7 +26,7 @@ const props = defineProps({
   showGrid: Boolean
 })
 
-const emit = defineEmits(['tool-change', 'undo', 'redo', 'save', 'toggle-grid', 'export'])
+const emit = defineEmits(['tool-change', 'undo', 'redo', 'save', 'open-projects', 'toggle-grid', 'export'])
 
 const hoveredTool = ref(null)
 const toolPosition = ref({ x: 0 })
@@ -48,8 +49,9 @@ const tools = [
   { id: 'zoom-in', component: IconZoomIn, group: 'actions', hasOptions: false, tooltip: 'Zoom In (Ctrl++)' },
   { id: 'zoom-out', component: IconZoomOut, group: 'actions', hasOptions: false, tooltip: 'Zoom Out (Ctrl+-)' },
   { id: 'divider3', type: 'divider' },
+  { id: 'projects', component: IconProjects, group: 'actions', hasOptions: false, tooltip: 'My Projects (Ctrl+O)' },
   { id: 'export', component: IconDownload, group: 'actions', hasOptions: false, tooltip: 'Export (Ctrl+E)' },
-  { id: 'save', component: IconSave, group: 'actions', hasOptions: false, tooltip: 'Save (Ctrl+S)' }
+  { id: 'save', component: IconSave, group: 'actions', hasOptions: false, tooltip: 'Save Project (Ctrl+S)' }
 ]
 
 // Get the base tool name (without option suffix)
@@ -76,6 +78,9 @@ const handleToolClick = (tool, event) => {
     return
   } else if (tool.id === 'grid') {
     emit('toggle-grid')
+    return
+  } else if (tool.id === 'projects') {
+    emit('open-projects')
     return
   } else if (tool.id === 'zoom-in') {
     emit('tool-change', 'zoom-in')

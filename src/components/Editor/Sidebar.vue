@@ -1,11 +1,22 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
+import { useLayers } from '@/composables/useLayers'
 import ColorWheel from '../ColorPicker/ColorWheel.vue'
 
-const emit = defineEmits(['tool-change', 'canvas-size-change', 'color-change'])
+const emit = defineEmits(['tool-change', 'canvas-size-change', 'color-change', 'layer-select', 'layer-delete'])
 
 const { primaryColor, colorVariants } = useTheme()
+const { 
+  layers, 
+  selectedLayerIds, 
+  toggleLayerVisibility, 
+  toggleLayerLock, 
+  deleteLayer: removeLayer,
+  selectLayer,
+  isLayerSelected
+} = useLayers()
+
 const showColorWheel = ref(false)
 const showLayers = ref(false)
 const showCanvasSize = ref(false)
@@ -70,38 +81,43 @@ const updateCanvasSize = () => {
   })
 }
 
-// Mock layers data - will be replaced with real data from canvas
-const layers = ref([
-  { id: 1, name: 'Background', visible: true, locked: false, type: 'layer' },
-  { id: 2, name: 'Sketch Layer', visible: true, locked: false, type: 'layer' },
-  { id: 3, name: 'Plants', visible: true, locked: false, type: 'layer' }
-])
-
-const toggleLayerVisibility = (layer) => {
-  layer.visible = !layer.visible
+// Layer management
+const handleLayerClick = (layer, event) => {
+  const multiSelect = event.ctrlKey || event.metaKey
+  selectLayer(layer.id, multiSelect)
+  emit('layer-select', layer.id, multiSelect)
 }
 
-const toggleLayerLock = (layer) => {
-  layer.locked = !layer.locked
+const handleToggleVisibility = (layer) => {
+  toggleLayerVisibility(layer.id)
 }
 
-const addNewLayer = () => {
-  const newLayer = {
-    id: Date.now(),
-    name: `Layer ${layers.value.length + 1}`,
-    visible: true,
-    locked: false,
-    type: 'layer'
-  }
-  layers.value.push(newLayer)
+const handleToggleLock = (layer) => {
+  toggleLayerLock(layer.id)
 }
 
-const deleteLayer = (layer) => {
-  const index = layers.value.findIndex(l => l.id === layer.id)
-  if (index > -1 && layers.value.length > 1) {
-    layers.value.splice(index, 1)
+const handleDeleteLayer = (layer) => {
+  if (layers.value.length > 0) {
+    removeLayer(layer.id)
+    emit('layer-delete', layer.id)
   }
 }
+
+// Get layer icon based on type
+const getLayerIcon = (type) => {
+  const icons = {
+    line: '✏️',
+    shape: '⬛',
+    image: '🖼️',
+    text: '📝'
+  }
+  return icons[type] || '📄'
+}
+
+// Reverse layers for display (newest on top)
+const displayLayers = computed(() => {
+  return [...layers.value].reverse()
+})
 </script>
 
 <template>
@@ -142,16 +158,22 @@ const deleteLayer = (layer) => {
     <Transition name="slide-panel">
       <div v-if="showLayers" class="layers-panel">
         <div class="panel-header">
-          <h3>Layers</h3>
-          <button @click="addNewLayer" class="add-layer-btn" title="Add Layer">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-            </svg>
-          </button>
+          <h3>Layers ({{ layers.length }})</h3>
         </div>
         <div class="layers-list">
-          <div v-for="layer in layers" :key="layer.id" class="layer-item">
-            <button @click="toggleLayerVisibility(layer)" class="layer-visibility" :title="layer.visible ? 'Hide' : 'Show'">
+          <div 
+            v-for="layer in displayLayers" 
+            :key="layer.id" 
+            class="layer-item"
+            :class="{ 
+              selected: isLayerSelected(layer.id),
+              locked: layer.locked,
+              hidden: !layer.visible
+            }"
+            @click="handleLayerClick(layer, $event)"
+          >
+            <span class="layer-icon">{{ getLayerIcon(layer.type) }}</span>
+            <button @click.stop="handleToggleVisibility(layer)" class="layer-visibility" :title="layer.visible ? 'Hide' : 'Show'">
               <svg v-if="layer.visible" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
               </svg>
@@ -161,8 +183,9 @@ const deleteLayer = (layer) => {
             </button>
             <div class="layer-info">
               <span class="layer-name">{{ layer.name }}</span>
+              <span class="layer-type">{{ layer.type }}</span>
             </div>
-            <button @click="toggleLayerLock(layer)" class="layer-lock" :title="layer.locked ? 'Unlock' : 'Lock'">
+            <button @click.stop="handleToggleLock(layer)" class="layer-lock" :title="layer.locked ? 'Unlock' : 'Lock'">
               <svg v-if="layer.locked" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
               </svg>
@@ -170,11 +193,15 @@ const deleteLayer = (layer) => {
                 <path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2z"/>
               </svg>
             </button>
-            <button @click="deleteLayer(layer)" class="layer-delete" title="Delete Layer" v-if="layers.length > 1">
+            <button @click.stop="handleDeleteLayer(layer)" class="layer-delete" title="Delete Layer">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
               </svg>
             </button>
+          </div>
+          <div v-if="layers.length === 0" class="no-layers">
+            <p>No layers yet</p>
+            <p class="hint">Start drawing to create layers</p>
           </div>
         </div>
       </div>
@@ -476,11 +503,35 @@ const deleteLayer = (layer) => {
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 10px;
   transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .layer-item:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(var(--primary-rgb), 0.3);
+}
+
+.layer-item.selected {
+  background: rgba(var(--primary-rgb), 0.2);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.3);
+}
+
+.layer-item.locked {
+  opacity: 0.6;
+}
+
+.layer-item.hidden {
+  opacity: 0.4;
+}
+
+.layer-icon {
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .layer-visibility,
@@ -519,6 +570,9 @@ const deleteLayer = (layer) => {
 .layer-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .layer-name {
@@ -528,6 +582,31 @@ const deleteLayer = (layer) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.layer-type {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.no-layers {
+  text-align: center;
+  padding: 30px 20px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.no-layers p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.no-layers .hint {
+  font-size: 11px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.3);
 }
 
 /* Canvas Size Panel */
