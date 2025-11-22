@@ -8,6 +8,7 @@
 import { ref, computed } from 'vue'
 import { useBotanicalAPI } from './useBotanicalAPI'
 import { useSQLite } from './useSQLite'
+import relationshipsData from '../data/relationships.json'
 
 // Shared state
 const dataSource = ref(null) // 'api' or 'sqlite'
@@ -49,12 +50,12 @@ export function useBotanicalData() {
    */
   const isLocalhost = () => {
     const hostname = window.location.hostname
-    return hostname === 'localhost' || 
-           hostname === '127.0.0.1' || 
-           hostname === '[::1]' ||
-           hostname.startsWith('192.168.') ||
-           hostname.startsWith('10.') ||
-           hostname.endsWith('.local')
+    return hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      hostname.endsWith('.local')
   }
 
   /**
@@ -251,8 +252,21 @@ export function useBotanicalData() {
     getCategories,
     switchDataSource,
 
+    // Relationship methods
+    getCompanions: (plantName) => {
+      if (!plantName) return []
+      const rel = relationshipsData.relationships.find(r => r.plant.toLowerCase() === plantName.toLowerCase())
+      return rel ? rel.companions : []
+    },
+    getAntagonists: (plantName) => {
+      if (!plantName) return []
+      const rel = relationshipsData.relationships.find(r => r.plant.toLowerCase() === plantName.toLowerCase())
+      return rel ? rel.antagonists : []
+    },
+
     // Direct access to underlying composables (for advanced use)
     api: apiComposable,
     sqlite: sqliteComposable
   }
 }
+

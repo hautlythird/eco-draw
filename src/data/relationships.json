@@ -1,0 +1,146 @@
+{
+    "relationships": [
+        {
+            "plant": "Tomato",
+            "companions": [
+                "Basil",
+                "Carrot",
+                "Onion",
+                "Parsley",
+                "Marigold"
+            ],
+            "antagonists": [
+                "Potato",
+                "Cabbage",
+                "Fennel",
+                "Corn"
+            ]
+        },
+        {
+            "plant": "Basil",
+            "companions": [
+                "Tomato",
+                "Pepper",
+                "Oregano",
+                "Asparagus"
+            ],
+            "antagonists": [
+                "Rue",
+                "Sage"
+            ]
+        },
+        {
+            "plant": "Carrot",
+            "companions": [
+                "Tomato",
+                "Onion",
+                "Leek",
+                "Rosemary",
+                "Sage"
+            ],
+            "antagonists": [
+                "Dill",
+                "Parsnip"
+            ]
+        },
+        {
+            "plant": "Potato",
+            "companions": [
+                "Bean",
+                "Corn",
+                "Cabbage",
+                "Marigold"
+            ],
+            "antagonists": [
+                "Tomato",
+                "Pumpkin",
+                "Cucumber",
+                "Sunflower",
+                "Squash"
+            ]
+        },
+        {
+            "plant": "Lettuce",
+            "companions": [
+                "Carrot",
+                "Radish",
+                "Strawberry",
+                "Cucumber"
+            ],
+            "antagonists": [
+                "Celery",
+                "Parsley"
+            ]
+        },
+        {
+            "plant": "Cucumber",
+            "companions": [
+                "Bean",
+                "Corn",
+                "Pea",
+                "Radish",
+                "Sunflower"
+            ],
+            "antagonists": [
+                "Potato",
+                "Sage"
+            ]
+        },
+        {
+            "plant": "Corn",
+            "companions": [
+                "Bean",
+                "Pumpkin",
+                "Squash",
+                "Potato",
+                "Pea"
+            ],
+            "antagonists": [
+                "Tomato"
+            ]
+        },
+        {
+            "plant": "Bean",
+            "companions": [
+                "Corn",
+                "Pumpkin",
+                "Carrot",
+                "Cucumber",
+                "Potato"
+            ],
+            "antagonists": [
+                "Onion",
+                "Garlic",
+                "Leek",
+                "Chive"
+            ]
+        },
+        {
+            "plant": "Onion",
+            "companions": [
+                "Carrot",
+                "Beet",
+                "Lettuce",
+                "Tomato"
+            ],
+            "antagonists": [
+                "Bean",
+                "Pea",
+                "Sage"
+            ]
+        },
+        {
+            "plant": "Pepper",
+            "companions": [
+                "Basil",
+                "Carrot",
+                "Onion",
+                "Spinach"
+            ],
+            "antagonists": [
+                "Fennel",
+                "Kohlrabi"
+            ]
+        }
+    ]
+}

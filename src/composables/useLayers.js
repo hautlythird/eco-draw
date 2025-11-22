@@ -165,6 +165,30 @@ export function useLayers() {
     layers.value = layers.value.filter(layer => allElementIds.has(layer.id))
   }
 
+  // Reorder layers (move layer to new index)
+  const reorderLayer = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return
+    const layer = layers.value[fromIndex]
+    layers.value.splice(fromIndex, 1)
+    layers.value.splice(toIndex, 0, layer)
+  }
+
+  // Move layer up (towards end of array = top of visual stack)
+  const moveLayerUp = (layerId) => {
+    const index = layers.value.findIndex(l => l.id === layerId)
+    if (index > -1 && index < layers.value.length - 1) {
+      reorderLayer(index, index + 1)
+    }
+  }
+
+  // Move layer down (towards start of array = bottom of visual stack)
+  const moveLayerDown = (layerId) => {
+    const index = layers.value.findIndex(l => l.id === layerId)
+    if (index > 0) {
+      reorderLayer(index, index - 1)
+    }
+  }
+
   return {
     layers,
     selectedLayerIds,
@@ -183,6 +207,9 @@ export function useLayers() {
     toggleLayerLock,
     renameLayer,
     clearLayers,
-    syncLayersFromElements
+    syncLayersFromElements,
+    reorderLayer,
+    moveLayerUp,
+    moveLayerDown
   }
 }

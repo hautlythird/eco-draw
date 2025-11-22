@@ -4,6 +4,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useHistory } from '@/composables/useHistory'
 import { useZoom } from '@/composables/useZoom'
 import { useLayers } from '@/composables/useLayers'
+import { useBotanicalData } from '@/composables/useBotanicalData'
 import { CANVAS_CONFIG, GRID_SCALES, PLANT_SPACING } from '@/constants/tools'
 import { generateElementId } from '@/utils/idGenerator'
 import { logger } from '@/utils/logger'
@@ -137,8 +138,26 @@ const {
   clearSelection,
   isLayerSelected,
   deleteLayer,
-  syncLayersFromElements
+  syncLayersFromElements,
+  getLayerByElementId
 } = useLayers()
+
+// Helper functions for layer visibility and lock
+const isElementVisible = (elementId) => {
+  const layer = getLayerByElementId(elementId)
+  return layer ? layer.visible : true
+}
+
+const isElementLocked = (elementId) => {
+  const layer = getLayerByElementId(elementId)
+  return layer ? layer.locked : false
+}
+
+// Botanical Data
+const { getCompanions, getAntagonists } = useBotanicalData()
+
+// Compatibility Feedback
+const compatibilityLines = ref([])
 
 // Transformer ref
 const transformerRef = ref(null)
@@ -207,6 +226,64 @@ const deleteSelectedElements = () => {
     saveHistory({ lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value })
     syncLayersFromElements(lines.value, shapes.value, images.value, texts.value)
   })
+}
+
+// Handle drop events for drag and drop
+const handleDrop = (e) => {
+  e.preventDefault()
+  const stage = stageRef.value?.getStage()
+  if (!stage) return
+  
+  // Get drop position relative to the stage
+  const containerRect = e.currentTarget.getBoundingClientRect()
+  const x = e.clientX - containerRect.left
+  const y = e.clientY - containerRect.top
+  
+  // Transform to stage coordinates
+  const transform = stage.getAbsoluteTransform().copy()
+  transform.invert()
+  const pos = transform.point({ x, y })
+  
+  try {
+    const data = JSON.parse(e.dataTransfer.getData('application/json'))
+    if (data.type === 'plant') {
+      const plant = data.data
+      
+      // Parse spacing to get radius in pixels
+      const spacingMeters = parseSpacing(plant.spacing)
+      const spacingRadius = spacingMeters * METER_TO_PIXELS / 2
+      
+      // Get plant color accent
+      const plantColor = getPlantColor(plant.type)
+      
+      // Create a plant element with proper spacing visualization
+      const plantElement = {
+        id: generateElementId(),
+        tag: plant.name,
+        text: getItemIcon(plant.type),
+        x: pos.x,
+        y: pos.y,
+        fontSize: 48,
+        fontFamily: 'Inter, sans-serif',
+        fill: plantColor,
+        draggable: false, // Dragging handled by invisible area
+        plantId: plant.id,
+        plantType: plant.type,
+        scientificName: plant.scientificName,
+        plantingDate: new Date().toISOString(),
+        spacing: plant.spacing,
+        spacingRadius: spacingRadius,
+        spacingMeters: spacingMeters
+      }
+      
+      texts.value.push(plantElement)
+      saveHistory({ lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value })
+      
+      logger.log('Plant dropped:', plant.name, 'at', pos, 'spacing:', spacingMeters + 'm')
+    }
+  } catch (err) {
+    logger.error('Error handling drop:', err)
+  }
 }
 
 // Handle keyboard shortcuts
@@ -528,16 +605,158 @@ defineExpose({
   },
   toggleSpacingGuides: () => {
     showSpacingGuides.value = !showSpacingGuides.value
-  },
-  getOverlayStates: () => ({
-    companionCircles: showCompanionCircles.value,
-    sunZones: showSunZones.value,
-    waterZones: showWaterZones.value,
-    spacingGuides: showSpacingGuides.value
-  })
+  }
 })
 
-// Transform screen coordinates to canvas coordinates (accounting for zoom/pan)
+// Helper to get plant icon
+const getItemIcon = (type) => {
+  const iconMap = {
+    'FRUITS': '🍎',
+    'HERBS': '🌿',
+    'VEGETABLES': '🥕',
+    'ROOTS': '🥔',
+    'TREES': '🌳',
+    'FLOWERS': '🌸',
+    'CROPS': '🌾',
+    'INVASIVE_SPECIES': '⚠️'
+  }
+  return iconMap[type] || '🌱'
+}
+
+// Helper to get plant color accent
+const getPlantColor = (type) => {
+  const colorMap = {
+    'FRUITS': '#FF4081',
+    'HERBS': '#4CAF50',
+    'VEGETABLES': '#FF9800',
+    'ROOTS': '#8D6E63',
+    'TREES': '#2E7D32',
+    'FLOWERS': '#E91E63',
+    'CROPS': '#FFC107',
+    'INVASIVE_SPECIES': '#F44336'
+  }
+  return colorMap[type] || '#65FF86'
+}
+
+// Parse spacing string (e.g., "8-15m" or "0.3-0.5m") to get average in meters
+const parseSpacing = (spacingStr) => {
+  if (!spacingStr) return 1 // Default 1 meter
+  
+  const match = spacingStr.match(/([\d.]+)(?:-([\d.]+))?m?/)
+  if (!match) return 1
+  
+  const min = parseFloat(match[1])
+  const max = match[2] ? parseFloat(match[2]) : min
+  return (min + max) / 2
+}
+
+// Check compatibility between a plant and existing plants
+const checkPlacementCompatibility = (newPlant) => {
+  compatibilityLines.value = [] // Clear previous lines
+  
+  if (!newPlant.tag) return
+
+  const companions = getCompanions(newPlant.tag)
+  const antagonists = getAntagonists(newPlant.tag)
+  
+  images.value.forEach(existingPlant => {
+    if (existingPlant.id === newPlant.id) return
+    
+    const isCompanion = companions.includes(existingPlant.tag)
+    const isAntagonist = antagonists.includes(existingPlant.tag)
+    
+    if (isCompanion || isAntagonist) {
+      // Draw connection line
+      compatibilityLines.value.push({
+        points: [newPlant.x + 50, newPlant.y + 50, existingPlant.x + 50, existingPlant.y + 50],
+        stroke: isCompanion ? '#2ecc71' : '#e74c3c',
+        strokeWidth: 2,
+        dash: [5, 5],
+        opacity: 0.8
+      })
+    }
+  })
+}
+
+// Watch for element moves to update compatibility lines
+watch([() => isMovingElement.value, () => movingElement.value], ([isMoving, element]) => {
+  if (isMoving && element && element.plantId) {
+    checkPlacementCompatibility(element)
+  } else {
+    compatibilityLines.value = [] // Clear lines when not moving
+  }
+})
+
+// Helper functions for drag events - unified for all element types
+const handleElementDragStart = (e, element) => {
+  if (isDrawing.value) {
+    e.evt.preventDefault()
+    return false
+  }
+  
+  // Prevent dragging locked elements
+  if (isElementLocked(element.id)) {
+    e.evt.preventDefault()
+    return false
+  }
+  
+  e.target.getStage().container().style.cursor = 'grabbing'
+  isMovingElement.value = true
+  movingElement.value = element
+  
+  // Check compatibility for plants
+  if (element.plantId) {
+    checkPlacementCompatibility(element)
+  }
+}
+
+const handleElementDragMove = (e, element) => {
+  if (isDrawing.value) {
+    e.evt.preventDefault()
+    return false
+  }
+  // Konva handles the position automatically, sync our reference
+  const node = e.target
+  element.x = node.x()
+  element.y = node.y()
+  
+  // Apply snap to grid if enabled
+  if (props.snapToGrid) {
+    const snapped = snapToGridPoint(element.x, element.y)
+    element.x = snapped.x
+    element.y = snapped.y
+    node.position({ x: snapped.x, y: snapped.y })
+  }
+  
+  // Update compatibility lines for plants during drag
+  if (element.plantId) {
+    checkPlacementCompatibility(element)
+  }
+}
+
+const handleElementDragEnd = (e, element) => {
+  if (isDrawing.value) {
+    e.evt.preventDefault()
+    return false
+  }
+  e.target.getStage().container().style.cursor = 'grab'
+  
+  // Final position sync
+  const node = e.target
+  element.x = node.x()
+  element.y = node.y()
+  
+  isMovingElement.value = false
+  movingElement.value = null
+  
+  // Clear compatibility lines
+  compatibilityLines.value = []
+  
+  saveHistory({ lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value })
+}
+
+// Element click and double-click handlers are defined below after drag handlers
+
 const getTransformedPointerPosition = (stage) => {
   const pos = stage.getPointerPosition()
   if (!pos) return { x: 0, y: 0 }
@@ -577,6 +796,34 @@ const handleMouseDown = (e) => {
     return
   }
   
+  // PREVENT drawing/creating shapes when dragging an element
+  if (isMovingElement.value) {
+    return
+  }
+  
+  // PREVENT drawing/creating shapes when clicking on a draggable element
+  const clickedElement = e.target
+  if (clickedElement !== stage && clickedElement.getClassName() !== 'Stage') {
+    const elementId = clickedElement.id()
+    const elementClass = clickedElement.getClassName()
+    
+    // Check if we clicked on a draggable element or inside a draggable group
+    const isDraggableElement = 
+      shapes.value.some(s => s.id === elementId && s.draggable !== false) ||
+      images.value.some(i => i.id === elementId && i.draggable !== false) ||
+      texts.value.some(t => t.id === elementId && t.draggable !== false) ||
+      (elementId && elementId.startsWith('drag-area-')) ||
+      (elementId && elementId.startsWith('text-group-')) ||
+      clickedElement.isDragging?.() ||
+      clickedElement.draggable?.() ||
+      (clickedElement.getParent && clickedElement.getParent()?.draggable?.())
+    
+    // If we clicked on a draggable element and we're not using the move tool, don't create new shapes
+    if (isDraggableElement && props.tool !== 'move') {
+      return
+    }
+  }
+  
   logger.log('Mouse down - Tool:', props.tool, 'Option:', props.toolOption, 'Position:', pos)
   
   // Handle move tool
@@ -586,13 +833,19 @@ const handleMouseDown = (e) => {
     // Check if we clicked on an element (not the stage)
     if (clickedElement !== stage && clickedElement.getClassName() !== 'Stage') {
       // Find the element in our arrays
-      const elementId = clickedElement.id()
+      let elementId = clickedElement.id()
       let foundElement = null
       
-      // Search in all element arrays
-      foundElement = shapes.value.find(s => s.id === elementId) ||
-                     images.value.find(i => i.id === elementId) ||
-                     texts.value.find(t => t.id === elementId)
+      // Check if it's a drag area for text elements
+      if (elementId && elementId.startsWith('drag-area-')) {
+        const actualId = elementId.replace('drag-area-', '')
+        foundElement = texts.value.find(t => t.id === actualId)
+      } else {
+        // Search in all element arrays
+        foundElement = shapes.value.find(s => s.id === elementId) ||
+                       images.value.find(i => i.id === elementId) ||
+                       texts.value.find(t => t.id === elementId)
+      }
       
       if (foundElement) {
         isMovingElement.value = true
@@ -850,15 +1103,25 @@ const closeTagDialog = () => {
 const handleMouseMove = (e) => {
   const stage = e.target.getStage()
   
-  // Handle element moving with move tool
+  // Handle element moving with move tool or direct drag
   if (isMovingElement.value && movingElement.value) {
     e.evt.preventDefault()
     const pos = getTransformedPointerPosition(stage)
     const deltaX = pos.x - moveStartPos.value.x
     const deltaY = pos.y - moveStartPos.value.y
     
-    movingElement.value.x = elementStartPos.value.x + deltaX
-    movingElement.value.y = elementStartPos.value.y + deltaY
+    let newX = elementStartPos.value.x + deltaX
+    let newY = elementStartPos.value.y + deltaY
+    
+    // Apply snap to grid if enabled
+    if (props.snapToGrid) {
+      const snapped = snapToGridPoint(newX, newY)
+      newX = snapped.x
+      newY = snapped.y
+    }
+    
+    movingElement.value.x = newX
+    movingElement.value.y = newY
     return
   }
   
@@ -878,7 +1141,8 @@ const handleMouseMove = (e) => {
     return
   }
   
-  if (!isDrawing.value) return
+  // PREVENT drawing when an element is being dragged
+  if (isMovingElement.value || !isDrawing.value) return
   
   // Prevent scrolling on touch devices
   if (e.evt) e.evt.preventDefault()
@@ -888,14 +1152,16 @@ const handleMouseMove = (e) => {
   if (props.tool === 'brush' || props.tool === 'eraser') {
     const lastLine = lines.value[lines.value.length - 1]
     if (lastLine) {
-      // Performance optimization: limit points for smoother rendering
       const lastPoints = lastLine.points
       const lastX = lastPoints[lastPoints.length - 2]
       const lastY = lastPoints[lastPoints.length - 1]
       
       // Only add point if it's far enough from the last point (reduces redundant points)
-      const distance = Math.sqrt(Math.pow(point.x - lastX, 2) + Math.pow(point.y - lastY, 2))
-      if (distance > 2) {
+      const dx = point.x - lastX
+      const dy = point.y - lastY
+      const distSq = dx * dx + dy * dy
+      
+      if (distSq > 4) { // Use squared distance to avoid sqrt
         lastLine.points = lastLine.points.concat([point.x, point.y])
       }
     }
@@ -904,49 +1170,46 @@ const handleMouseMove = (e) => {
     const startX = creationStartPos.value.x
     const startY = creationStartPos.value.y
     
-    // Calculate distance from start point for size
     const dx = point.x - startX
     const dy = point.y - startY
     const distance = Math.sqrt(dx * dx + dy * dy)
-    
-    // Calculate angle from start point for rotation (in degrees)
     const angle = Math.atan2(dy, dx) * (180 / Math.PI)
     
     if (lastShape.type === 'rect') {
-      // For rectangles, use distance for both width and height (square-like growth)
       const size = distance
       lastShape.width = size
       lastShape.height = size
-      // Set offset to center the rotation
       lastShape.offsetX = size / 2
       lastShape.offsetY = size / 2
-      // Update position to keep center at start point
       lastShape.x = startX
       lastShape.y = startY
-      // Apply rotation
       lastShape.rotation = angle
     } else if (lastShape.type === 'circle') {
       lastShape.radius = distance
-      // Apply rotation (visual feedback even though circles are symmetric)
       lastShape.rotation = angle
     } else if (lastShape.type === 'ellipse') {
-      // For ellipse, use distance as radius and angle for rotation
       lastShape.radiusX = distance
-      lastShape.radiusY = distance * 0.6 // Make it elliptical
+      lastShape.radiusY = distance * 0.6
       lastShape.rotation = angle
     } else if (lastShape.type === 'triangle' || lastShape.type === 'right-triangle') {
       lastShape.radius = distance
-      // For triangles, add the angle to the initial rotation
       const baseRotation = lastShape.type === 'right-triangle' ? 0 : 180
       lastShape.rotation = baseRotation + angle
     }
     
-    // Store current rotation angle for visual feedback
     currentRotationAngle.value = angle
   }
 }
 
 const handleMouseUp = (e) => {
+  // Reset cursor to default
+  if (e && e.target) {
+    const stage = e.target.getStage()
+    if (stage) {
+      stage.container().style.cursor = 'default'
+    }
+  }
+  
   // Stop element moving
   if (isMovingElement.value) {
     isMovingElement.value = false
@@ -1026,19 +1289,17 @@ const handleTouchMove = (e) => {
   const touches = e.evt.touches
   
   if (touches.length === 2 && isTwoFingerGesture.value) {
-    // Two-finger pan and zoom gesture
     e.evt.preventDefault()
     
     const now = Date.now()
     const timeDelta = now - lastPanTime.value
     
-    const centerX = (touches[0].clientX + touches[1].clientX) / 2
-    const centerY = (touches[0].clientY + touches[1].clientY) / 2
+    const centerX = (touches[0].clientX + touches[1].clientX) * 0.5
+    const centerY = (touches[0].clientY + touches[1].clientY) * 0.5
     
     const deltaX = centerX - lastPanPosition.value.x
     const deltaY = centerY - lastPanPosition.value.y
     
-    // Calculate velocity for smoother panning
     if (timeDelta > 0) {
       panVelocity.value = {
         x: deltaX / timeDelta,
@@ -1046,26 +1307,21 @@ const handleTouchMove = (e) => {
       }
     }
     
-    // Calculate current distance for pinch zoom
     const dx = touches[1].clientX - touches[0].clientX
     const dy = touches[1].clientY - touches[0].clientY
     const currentDistance = Math.sqrt(dx * dx + dy * dy)
     
-    // Detect if this is primarily a zoom or pan gesture
     const distanceChange = Math.abs(currentDistance - touchStartDistance.value)
-    const panDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
-    const isZoomGesture = distanceChange > panDistance * 0.5
+    const panDistSq = deltaX * deltaX + deltaY * deltaY
+    const isZoomGesture = distanceChange * distanceChange > panDistSq * 0.25
     
-    // Apply pinch zoom if significant distance change
     if (isZoomGesture && touchStartDistance.value > 0 && currentDistance > 0) {
       const scaleDelta = currentDistance / touchStartDistance.value
       const oldScale = stageScale.value
       
-      // Smooth zoom with damping
       const smoothScaleDelta = 1 + (scaleDelta - 1) * 0.5
       const newScale = Math.max(0.1, Math.min(10, oldScale * smoothScaleDelta))
       
-      // Zoom towards the center point of the two fingers
       const mousePointTo = {
         x: (centerX - stagePosition.value.x) / oldScale,
         y: (centerY - stagePosition.value.y) / oldScale
@@ -1073,7 +1329,6 @@ const handleTouchMove = (e) => {
       
       stageScale.value = newScale
       
-      // Adjust position to zoom towards touch center
       stagePosition.value = {
         x: centerX - mousePointTo.x * newScale,
         y: centerY - mousePointTo.y * newScale
@@ -1081,8 +1336,7 @@ const handleTouchMove = (e) => {
       
       touchStartDistance.value = currentDistance
     } else {
-      // Apply smooth panning with acceleration
-      const acceleration = 1.2 // Slightly faster panning
+      const acceleration = 1.2
       stagePosition.value = {
         x: stagePosition.value.x + deltaX * acceleration,
         y: stagePosition.value.y + deltaY * acceleration
@@ -1092,7 +1346,6 @@ const handleTouchMove = (e) => {
     lastPanPosition.value = { x: centerX, y: centerY }
     lastPanTime.value = now
   } else if (touches.length === 1 && !isTwoFingerGesture.value) {
-    // Single touch - normal drawing
     handleMouseMove(e)
   }
 }
@@ -1238,10 +1491,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="canvas-container" :class="{ 
-    panning: isMiddleMousePanning || isTwoFingerGesture || isMovingElement,
-    'move-tool': tool === 'move'
-  }">
+  <div 
+    class="canvas-container" 
+    :class="{ 
+      panning: isMiddleMousePanning || isTwoFingerGesture || isMovingElement,
+      'move-tool': tool === 'move'
+    }"
+    @drop="handleDrop"
+    @dragover.prevent
+  >
     <v-stage
     ref="stageRef"
     :config="{
@@ -1386,11 +1644,17 @@ onUnmounted(() => {
       
       <!-- Grid Overlays & UI Layer (Combined) -->
       <v-layer v-if="showGrid" :config="{ listening: false }">
-        <!-- 🌿 Companion planting circles -->
         <v-circle
           v-for="(circle, i) in companionCircles"
           :key="`companion-circle-${i}`"
           :config="circle"
+        />
+
+        <!-- 🤝 Compatibility Lines -->
+        <v-line
+          v-for="(line, i) in compatibilityLines"
+          :key="`compat-line-${i}`"
+          :config="line"
         />
                 
         <!-- 🌱 Compact info panel (only shows when zoomed out) -->
@@ -1499,7 +1763,7 @@ onUnmounted(() => {
         </template>
         </template>
         
-        <!-- Export Area Border (clean neon effect) -->
+        <!-- Export Area Border (dashed line only) -->
         <v-rect
           :config="{
             x: exportAreaOffsetX,
@@ -1507,13 +1771,10 @@ onUnmounted(() => {
             width: exportAreaWidthPx,
             height: exportAreaHeightPx,
             stroke: props.brushColor,
-            strokeWidth: 3,
+            strokeWidth: 2,
             dash: [20, 10],
-            shadowColor: props.brushColor,
-            shadowBlur: 25,
-            shadowOpacity: 0.8,
-            shadowForStrokeEnabled: true,
-            listening: false
+            listening: false,
+            opacity: 0.6
           }"
         />
       </v-layer>
@@ -1522,8 +1783,8 @@ onUnmounted(() => {
       <v-layer>
         <!-- Draw all lines -->
         <v-line
-          v-for="(line, i) in lines"
-          :key="`line-${line.id || i}`"
+          v-for="line in lines"
+          :key="`line-${line.id}`"
           :config="line"
         />
         
@@ -1555,6 +1816,11 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
+            @mouseenter="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'grab' }"
+            @mouseleave="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'default' }"
+            @dragstart="(e) => handleElementDragStart(e, shape)"
+            @dragmove="(e) => handleElementDragMove(e, shape)"
+            @dragend="(e) => handleElementDragEnd(e, shape)"
             @click="(e) => handleElementClick(shape, e, e.target)"
             @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
@@ -1642,6 +1908,11 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
+            @mouseenter="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'grab' }"
+            @mouseleave="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'default' }"
+            @dragstart="(e) => handleElementDragStart(e, shape)"
+            @dragmove="(e) => handleElementDragMove(e, shape)"
+            @dragend="(e) => handleElementDragEnd(e, shape)"
             @click="(e) => handleElementClick(shape, e, e.target)"
             @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
@@ -1730,6 +2001,11 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
+            @mouseenter="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'grab' }"
+            @mouseleave="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'default' }"
+            @dragstart="(e) => handleElementDragStart(e, shape)"
+            @dragmove="(e) => handleElementDragMove(e, shape)"
+            @dragend="(e) => handleElementDragEnd(e, shape)"
             @click="(e) => handleElementClick(shape, e, e.target)"
             @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
@@ -1817,6 +2093,11 @@ onUnmounted(() => {
               shadowBlur: shape.shadowBlur || 0,
               shadowOpacity: shape.shadowOpacity || 0
             }"
+            @mouseenter="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'grab' }"
+            @mouseleave="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'default' }"
+            @dragstart="(e) => handleElementDragStart(e, shape)"
+            @dragmove="(e) => handleElementDragMove(e, shape)"
+            @dragend="(e) => handleElementDragEnd(e, shape)"
             @click="(e) => handleElementClick(shape, e, e.target)"
             @tap="(e) => handleElementClick(shape, e, e.target)"
             @dblclick="handleElementDoubleClick(shape, $event)"
@@ -1878,11 +2159,11 @@ onUnmounted(() => {
         </template>
         
         <!-- Draw all images -->
-        <template v-for="(img, i) in images" :key="`image-group-${img.id || i}`">
+        <template v-for="img in images" :key="`image-group-${img.id}`">
           <!-- Layer border for selected elements -->
           <v-rect
             v-if="isLayerSelected(img.id)"
-            :key="`image-border-${img.id || i}`"
+            :key="`image-border-${img.id}`"
             :config="{
               x: img.x - 5,
               y: img.y - 5,
@@ -1901,6 +2182,11 @@ onUnmounted(() => {
               ...img,
               id: img.id
             }"
+            @mouseenter="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'grab' }"
+            @mouseleave="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'default' }"
+            @dragstart="(e) => handleElementDragStart(e, img)"
+            @dragmove="(e) => handleElementDragMove(e, img)"
+            @dragend="(e) => handleElementDragEnd(e, img)"
             @click="(e) => handleElementClick(img, e, e.target)"
             @tap="(e) => handleElementClick(img, e, e.target)"
             @dblclick="handleElementDoubleClick(img, $event)"
@@ -1909,7 +2195,7 @@ onUnmounted(() => {
           <!-- Label components for images -->
           <template v-if="showLabels && img.tag">
             <v-rect
-              :key="`image-label-bg-${img.id || i}`"
+              :key="`image-label-bg-${img.id}`"
               :config="{
                 x: img.x - 4,
                 y: img.y - 32,
@@ -1927,7 +2213,7 @@ onUnmounted(() => {
               }"
             />
             <v-text
-              :key="`image-label-text-${img.id || i}`"
+              :key="`image-label-text-${img.id}`"
               :config="{
                 x: img.x + 4,
                 y: img.y - 27,
@@ -1943,7 +2229,7 @@ onUnmounted(() => {
               }"
             />
             <v-line
-              :key="`image-label-line-${img.id || i}`"
+              :key="`image-label-line-${img.id}`"
               :config="{
                 points: [
                   img.x + (img.tag.length * 4 + 4),
@@ -1961,12 +2247,31 @@ onUnmounted(() => {
           </template>
         </template>
         
-        <!-- Draw all texts -->
-        <template v-for="(text, i) in texts" :key="`text-group-${text.id || i}`">
+        <!-- Draw all texts/plants with enhanced visualization -->
+        <template v-for="text in texts" :key="`text-group-${text.id}`" >
+          <!-- 🌱 Plant spacing circle (dotted line showing required space) -->
+          <v-circle
+            v-if="text.plantId && text.spacingRadius"
+            :key="`plant-spacing-${text.id}`"
+            :config="{
+              x: text.x + (text.fontSize || 48) / 2,
+              y: text.y + (text.fontSize || 48) / 2,
+              radius: text.spacingRadius,
+              stroke: text.fill || '#65FF86',
+              strokeWidth: 2,
+              dash: [8, 8],
+              listening: false,
+              opacity: 0.5,
+              perfectDrawEnabled: false
+            }"
+          />
+          
+
+          
           <!-- Layer border for selected elements -->
           <v-rect
             v-if="isLayerSelected(text.id)"
-            :key="`text-border-${text.id || i}`"
+            :key="`text-border-${text.id}`"
             :config="{
               x: text.x - 5,
               y: text.y - 5,
@@ -1976,24 +2281,146 @@ onUnmounted(() => {
               strokeWidth: 2,
               dash: [8, 4],
               listening: false,
-              opacity: 0.6
+              opacity: 0.6,
+              perfectDrawEnabled: false
             }"
           />
-          <v-text
-            :ref="(el) => { if (el) konvaNodesMap.set(text.id, el.getNode()) }"
+          
+          <!-- Plant/Text Icon (draggable with larger hit area via group) -->
+          <v-group
             :config="{
-              ...text,
-              id: text.id
+              x: text.x,
+              y: text.y,
+              draggable: true,
+              id: `text-group-${text.id}`,
+              name: 'draggable-element'
             }"
+            @mouseenter="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'grab' }"
+            @mouseleave="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'default' }"
+            @dragstart="(e) => handleElementDragStart(e, text)"
+            @dragmove="(e) => {
+              if (isDrawing.value) {
+                e.evt.preventDefault()
+                return false
+              }
+              
+              // Konva handles the position automatically, sync our reference
+              const node = e.target
+              text.x = node.x()
+              text.y = node.y()
+              
+              // Apply snap to grid if enabled
+              if (props.snapToGrid) {
+                const snapped = snapToGridPoint(text.x, text.y)
+                text.x = snapped.x
+                text.y = snapped.y
+                node.position({ x: snapped.x, y: snapped.y })
+              }
+              
+              // Update compatibility lines for plants during drag
+              if (text.plantId) {
+                checkPlacementCompatibility(text)
+              }
+            }"
+            @dragend="(e) => handleElementDragEnd(e, text)"
             @click="(e) => handleElementClick(text, e, e.target)"
             @tap="(e) => handleElementClick(text, e, e.target)"
             @dblclick="handleElementDoubleClick(text, $event)"
             @dbltap="handleElementDoubleClick(text, $event)"
-          />
-          <!-- Label components for texts -->
-          <template v-if="showLabels && text.tag">
+          >
+            <!-- Larger invisible hit area -->
             <v-rect
-              :key="`text-label-bg-${text.id || i}`"
+              :config="{
+                x: -15,
+                y: -15,
+                width: (text.fontSize || 48) + 30,
+                height: (text.fontSize || 48) + 30,
+                fill: 'transparent',
+                listening: true
+              }"
+            />
+            
+            <!-- Actual text -->
+            <v-text
+              :ref="(el) => { if (el) konvaNodesMap.set(text.id, el.getNode()) }"
+              :config="{
+                x: 0,
+                y: 0,
+                text: text.text,
+                fontSize: text.fontSize,
+                fontFamily: text.fontFamily,
+                fontStyle: text.fontStyle,
+                fill: text.fill,
+                id: text.id,
+                shadowColor: text.plantId ? (text.fill || '#65FF86') : 'transparent',
+                shadowBlur: text.plantId ? 15 : 0,
+                shadowOpacity: text.plantId ? 0.6 : 0,
+                perfectDrawEnabled: false,
+                listening: false
+              }"
+            />
+          </v-group>
+          
+          <!-- 🏷️ Plant Nametag (always visible for plants) -->
+          <template v-if="text.plantId && text.tag">
+            <!-- Nametag background -->
+            <v-rect
+              :config="{
+                x: text.x + (text.fontSize || 48) / 2 - (text.tag.length * 4.5 + 12),
+                y: text.y - 38,
+                width: text.tag.length * 9 + 24,
+                height: 28,
+                fill: 'rgba(0, 0, 0, 0.95)',
+                cornerRadius: 8,
+                shadowColor: text.fill || '#65FF86',
+                shadowBlur: 20,
+                shadowOpacity: 0.7,
+                shadowForStrokeEnabled: false,
+                listening: false,
+                stroke: text.fill || '#65FF86',
+                strokeWidth: 2,
+                opacity: 1,
+                perfectDrawEnabled: false
+              }"
+            />
+            <!-- Nametag text -->
+            <v-text
+              :config="{
+                x: text.x + (text.fontSize || 48) / 2 - (text.tag.length * 4.5),
+                y: text.y - 31,
+                text: text.tag,
+                fontSize: 14,
+                fontFamily: 'Inter, sans-serif',
+                fill: text.fill || '#65FF86',
+                fontStyle: 'bold',
+                listening: false,
+                shadowColor: text.fill || '#65FF86',
+                shadowBlur: 12,
+                shadowOpacity: 1,
+                perfectDrawEnabled: false
+              }"
+            />
+            <!-- Spacing info label (below icon) -->
+            <v-text
+              v-if="text.spacingMeters"
+              :config="{
+                x: text.x + (text.fontSize || 48) / 2 - 20,
+                y: text.y + (text.fontSize || 48) + 8,
+                text: `${text.spacingMeters.toFixed(1)}m`,
+                fontSize: 11,
+                fontFamily: 'Inter, monospace',
+                fill: 'rgba(255, 255, 255, 0.7)',
+                listening: false,
+                shadowColor: '#000',
+                shadowBlur: 4,
+                perfectDrawEnabled: false
+              }"
+            />
+          </template>
+          
+          <!-- Label components for non-plant texts (original behavior) -->
+          <template v-if="!text.plantId && showLabels && text.tag">
+            <v-rect
               :config="{
                 x: text.x - 4,
                 y: text.y - 32,
@@ -2007,11 +2434,11 @@ onUnmounted(() => {
                 listening: false,
                 stroke: text.fill,
                 strokeWidth: 1,
-                opacity: 0.95
+                opacity: 0.95,
+                perfectDrawEnabled: false
               }"
             />
             <v-text
-              :key="`text-label-text-${text.id || i}`"
               :config="{
                 x: text.x + 4,
                 y: text.y - 27,
@@ -2023,11 +2450,11 @@ onUnmounted(() => {
                 listening: false,
                 shadowColor: text.fill,
                 shadowBlur: 10,
-                shadowOpacity: 1
+                shadowOpacity: 1,
+                perfectDrawEnabled: false
               }"
             />
             <v-line
-              :key="`text-label-line-${text.id || i}`"
               :config="{
                 points: [
                   text.x + (text.tag.length * 4 + 4),
@@ -2039,7 +2466,8 @@ onUnmounted(() => {
                 strokeWidth: 1.5,
                 dash: [4, 4],
                 opacity: 0.4,
-                listening: false
+                listening: false,
+                perfectDrawEnabled: false
               }"
             />
           </template>
@@ -2508,3 +2936,6 @@ onUnmounted(() => {
   box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
 }
 </style>
+
+
+

@@ -14,7 +14,9 @@ const {
   toggleLayerLock, 
   deleteLayer: removeLayer,
   selectLayer,
-  isLayerSelected
+  isLayerSelected,
+  moveLayerUp,
+  moveLayerDown
 } = useLayers()
 
 const showColorWheel = ref(false)
@@ -101,6 +103,14 @@ const handleDeleteLayer = (layer) => {
     removeLayer(layer.id)
     emit('layer-delete', layer.id)
   }
+}
+
+const handleMoveLayerUp = (layer) => {
+  moveLayerUp(layer.id)
+}
+
+const handleMoveLayerDown = (layer) => {
+  moveLayerDown(layer.id)
 }
 
 // Get layer icon based on type
@@ -193,11 +203,23 @@ const displayLayers = computed(() => {
                 <path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2z"/>
               </svg>
             </button>
-            <button @click.stop="handleDeleteLayer(layer)" class="layer-delete" title="Delete Layer">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-              </svg>
-            </button>
+            <div class="layer-actions">
+              <button @click.stop="handleMoveLayerUp(layer)" class="layer-action-btn" title="Move Up">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+                </svg>
+              </button>
+              <button @click.stop="handleMoveLayerDown(layer)" class="layer-action-btn" title="Move Down">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                </svg>
+              </button>
+              <button @click.stop="handleDeleteLayer(layer)" class="layer-action-btn layer-delete" title="Delete Layer">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                </svg>
+              </button>
+            </div>
           </div>
           <div v-if="layers.length === 0" class="no-layers">
             <p>No layers yet</p>
@@ -565,6 +587,40 @@ const displayLayers = computed(() => {
 .layer-delete svg {
   width: 18px;
   height: 18px;
+}
+
+.layer-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.layer-action-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+}
+
+.layer-action-btn:hover {
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.1);
+}
+
+.layer-action-btn.layer-delete:hover {
+  color: #ff4444;
+  background: rgba(255, 68, 68, 0.1);
+}
+
+.layer-action-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .layer-info {

@@ -10,6 +10,8 @@ import GridGuide from './components/Editor/GridGuide.vue'
 import ExportDialog from './components/Editor/ExportDialog.vue'
 import ProjectsGallery from './components/Editor/ProjectsGallery.vue'
 import RightPanel from './components/Editor/RightPanel.vue'
+import GardenStats from './components/GardenStats.vue'
+import GardenCalendar from './components/GardenCalendar.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import ErrorBoundary from './components/ErrorBoundary.vue'
 import AccessibilityMenu from './components/AccessibilityMenu.vue'
@@ -28,6 +30,8 @@ const showShortcuts = ref(false)
 const showExport = ref(false)
 const showAccessibility = ref(false)
 const showProjects = ref(false)
+const showStats = ref(false)
+const showCalendar = ref(false)
 const showGrid = ref(true)
 const currentTool = ref('brush')
 const currentToolOption = ref('pencil')
@@ -292,6 +296,7 @@ const handleCloseProject = (projectId) => {
   }
 }
 
+
 const handleNewProject = () => {
   // Save current project data before creating new
   if (currentProjectId.value && canvasRef.value) {
@@ -424,7 +429,17 @@ watch(showSplash, (isShowing) => {
         @open-projects="handleOpenProjects"
         @toggle-grid="showGrid = !showGrid; preferences.showGrid = showGrid"
         @export="showExport = true"
-      />
+        @open-shortcuts="showShortcuts = true"
+      >
+        <template #extra-tools>
+          <button class="tool-btn" @click="showStats = true" title="Garden Dashboard">
+            📊
+          </button>
+          <button class="tool-btn" @click="showCalendar = true" title="Seasonal Timeline">
+            📅
+          </button>
+        </template>
+      </Toolbar>
       
       <EditorCanvas 
         ref="canvasRef"
@@ -446,6 +461,7 @@ watch(showSplash, (isShowing) => {
       @close-project="handleCloseProject"
       @new-project="handleNewProject"
       @open-gallery="handleOpenProjects"
+      @open-library="showLibrary = true"
     />
 
     <BrushControls
@@ -461,6 +477,19 @@ watch(showSplash, (isShowing) => {
       v-if="showLibrary"
       @close="showLibrary = false"
     />
+
+    <GardenStats
+      v-if="showStats"
+      :plants="canvasRef?.getCanvasData().images || []"
+      @close="showStats = false"
+    />
+
+    <GardenCalendar
+      v-if="showCalendar"
+      :plants="canvasRef?.getCanvasData().images || []"
+      @close="showCalendar = false"
+    />
+
 
     <ProjectsGallery
       v-if="showProjects"

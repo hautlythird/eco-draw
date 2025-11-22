@@ -1,17 +1,94 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import ProjectTabs from './ProjectTabs.vue'
+import MiniBotanicalLibrary from '../Library/MiniBotanicalLibrary.vue'
+import { useProjects } from '@/composables/useProjects'
+import { useLocalStorage } from '@/composables/useLocalStorage'
+import { logger } from '@/utils/logger'
 
-const emit = defineEmits(['switch-project', 'close-project', 'new-project', 'open-gallery'])
+const emit = defineEmits(['switch-project', 'close-project', 'new-project', 'open-gallery', 'open-library', 'settings-change'])
+
+const { openProjects, currentProjectId } = useProjects()
 
 const activeSection = ref(null)
 const hoveredIcon = ref(null)
 const isExpanded = computed(() => activeSection.value !== null)
 
-// Settings state
-const gridSnap = ref(false)
-const autoSave = ref(true)
-const theme = ref('dark')
+// Settings state with persistence
+const { data: settings } = useLocalStorage('ecodraw-right-panel-settings', {
+  gridSnap: false,
+  autoSave: true,
+  theme: 'dark',
+  showFPS: false,
+  highContrast: false,
+  reducedMotion: false
+})
+
+const gridSnap = computed({
+  get: () => settings.value.gridSnap,
+  set: (val) => {
+    settings.value.gridSnap = val
+    emit('settings-change', { gridSnap: val })
+    logger.log('Grid snap:', val)
+  }
+})
+
+const autoSave = computed({
+  get: () => settings.value.autoSave,
+  set: (val) => {
+    settings.value.autoSave = val
+    emit('settings-change', { autoSave: val })
+    logger.log('Auto-save:', val)
+  }
+})
+
+const theme = computed({
+  get: () => settings.value.theme,
+  set: (val) => {
+    settings.value.theme = val
+    applyTheme(val)
+    emit('settings-change', { theme: val })
+    logger.log('Theme:', val)
+  }
+})
+
+const showFPS = computed({
+  get: () => settings.value.showFPS,
+  set: (val) => {
+    settings.value.showFPS = val
+    emit('settings-change', { showFPS: val })
+    logger.log('Show FPS:', val)
+  }
+})
+
+const highContrast = computed({
+  get: () => settings.value.highContrast,
+  set: (val) => {
+    settings.value.highContrast = val
+    document.documentElement.classList.toggle('high-contrast', val)
+    emit('settings-change', { highContrast: val })
+    logger.log('High contrast:', val)
+  }
+})
+
+const reducedMotion = computed({
+  get: () => settings.value.reducedMotion,
+  set: (val) => {
+    settings.value.reducedMotion = val
+    document.documentElement.classList.toggle('reduced-motion', val)
+    emit('settings-change', { reducedMotion: val })
+    logger.log('Reduced motion:', val)
+  }
+})
+
+const applyTheme = (themeValue) => {
+  if (themeValue === 'auto') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light')
+  } else {
+    document.documentElement.setAttribute('data-theme', themeValue)
+  }
+}
 
 const handleSwitchProject = (projectId) => {
   emit('switch-project', projectId)
@@ -29,12 +106,38 @@ const handleOpenGallery = () => {
   emit('open-gallery')
 }
 
+const handleOpenLibrary = () => {
+  // Emit event to open the full botanical library
+  emit('open-library')
+}
+
 const toggleSection = (section) => {
   if (activeSection.value === section) {
     activeSection.value = null
   } else {
     activeSection.value = section
   }
+}
+
+// Apply theme on mount
+onMounted(() => {
+  applyTheme(theme.value)
+  if (highContrast.value) {
+    document.documentElement.classList.add('high-contrast')
+  }
+  if (reducedMotion.value) {
+    document.documentElement.classList.add('reduced-motion')
+  }
+})
+
+// Watch for system theme changes when in auto mode
+if (window.matchMedia) {
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  mediaQuery.addEventListener('change', () => {
+    if (theme.value === 'auto') {
+      applyTheme('auto')
+    }
+  })
 }
 
 const dockItems = [
@@ -48,6 +151,11 @@ const dockItems = [
     icon: 'M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4l2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z',
     label: 'Gallery',
     action: 'open-gallery'
+  },
+  {
+    id: 'library',
+    icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z',
+    label: 'Library'
   },
   {
     id: 'new',
@@ -88,6 +196,23 @@ const handleDockItemClick = (item) => {
     toggleSection(item.id)
   }
 }
+
+// Keyboard navigation for dock items
+const handleDockKeydown = (event, item) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    handleDockItemClick(item)
+  } else if (event.key === 'Escape' && activeSection.value) {
+    activeSection.value = null
+  }
+}
+
+// Close panel with Escape key
+const handlePanelKeydown = (event) => {
+  if (event.key === 'Escape') {
+    activeSection.value = null
+  }
+}
 </script>
 
 <template>
@@ -116,7 +241,12 @@ const handleDockItemClick = (item) => {
           @mouseenter="hoveredIcon = item.id"
           @mouseleave="hoveredIcon = null"
           @click="handleDockItemClick(item)"
+          @keydown="handleDockKeydown($event, item)"
           :title="item.label"
+          :aria-label="item.label"
+          :aria-pressed="activeSection === item.id"
+          tabindex="0"
+          role="button"
         >
           <div class="dock-icon">
             <svg viewBox="0 0 24 24" fill="currentColor">
@@ -132,7 +262,13 @@ const handleDockItemClick = (item) => {
 
     <!-- Expandable Content Panel -->
     <Transition name="slide-panel">
-      <div v-if="isExpanded" class="content-panel">
+      <div 
+        v-if="isExpanded" 
+        class="content-panel"
+        @keydown="handlePanelKeydown"
+        role="region"
+        :aria-label="`${dockItems.find(i => i.id === activeSection)?.label} panel`"
+      >
         <div class="panel-header">
           <h3>{{ dockItems.find(i => i.id === activeSection)?.label }}</h3>
           <button @click="activeSection = null" class="close-btn">
@@ -148,18 +284,55 @@ const handleDockItemClick = (item) => {
             <div class="info-card">
               <div class="info-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                  <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
                 </svg>
               </div>
               <div class="info-content">
-                <h4>Active Projects</h4>
-                <p>Switch between open projects using the tabs above</p>
+                <h4>Open Projects</h4>
+                <p>{{ openProjects.length }} project{{ openProjects.length !== 1 ? 's' : '' }} currently open</p>
               </div>
+            </div>
+
+            <div v-if="openProjects.length > 0" class="projects-list">
+              <div 
+                v-for="project in openProjects" 
+                :key="project.id"
+                class="project-item"
+                :class="{ active: project.id === currentProjectId }"
+                @click="handleSwitchProject(project.id)"
+              >
+                <div class="project-info">
+                  <div class="project-name">{{ project.name }}</div>
+                  <div v-if="project.unsaved" class="project-status unsaved">Unsaved changes</div>
+                  <div v-else class="project-status saved">Saved</div>
+                </div>
+                <button 
+                  @click.stop="handleCloseProject(project.id)" 
+                  class="project-close"
+                  :aria-label="`Close ${project.name}`"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div v-else class="empty-state">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+              </svg>
+              <p>No projects open</p>
             </div>
             
             <div class="tip-card">
-              <strong>💡 Tip:</strong> Press <kbd>Ctrl+N</kbd> to create a new project
+              <strong>💡 Tip:</strong> Press <kbd>Ctrl+N</kbd> to create a new project or <kbd>Ctrl+O</kbd> to open the gallery
             </div>
+          </div>
+
+          <!-- Library Section -->
+          <div v-if="activeSection === 'library'" class="content-section library-section">
+            <MiniBotanicalLibrary @expand="handleOpenLibrary" />
           </div>
 
           <!-- Settings Section -->
@@ -167,17 +340,33 @@ const handleDockItemClick = (item) => {
             <div class="settings-group">
               <h4>Canvas Settings</h4>
               <div class="setting-item">
-                <label>Grid Snap</label>
+                <div class="setting-label">
+                  <label>Grid Snap</label>
+                  <span class="setting-description">Snap objects to grid</span>
+                </div>
                 <div class="toggle">
                   <input type="checkbox" id="grid-snap" v-model="gridSnap">
                   <label for="grid-snap"></label>
                 </div>
               </div>
               <div class="setting-item">
-                <label>Auto-save</label>
+                <div class="setting-label">
+                  <label>Auto-save</label>
+                  <span class="setting-description">Save changes automatically</span>
+                </div>
                 <div class="toggle">
                   <input type="checkbox" id="auto-save" v-model="autoSave">
                   <label for="auto-save"></label>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label>Show FPS</label>
+                  <span class="setting-description">Display performance metrics</span>
+                </div>
+                <div class="toggle">
+                  <input type="checkbox" id="show-fps" v-model="showFPS">
+                  <label for="show-fps"></label>
                 </div>
               </div>
             </div>
@@ -185,12 +374,39 @@ const handleDockItemClick = (item) => {
             <div class="settings-group">
               <h4>Appearance</h4>
               <div class="setting-item">
-                <label>Theme</label>
+                <div class="setting-label">
+                  <label>Theme</label>
+                  <span class="setting-description">Color scheme preference</span>
+                </div>
                 <select class="setting-select" v-model="theme">
                   <option value="dark">Dark</option>
                   <option value="light">Light</option>
                   <option value="auto">Auto</option>
                 </select>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <h4>Accessibility</h4>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label>High Contrast</label>
+                  <span class="setting-description">Increase visual contrast</span>
+                </div>
+                <div class="toggle">
+                  <input type="checkbox" id="high-contrast" v-model="highContrast">
+                  <label for="high-contrast"></label>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label>Reduced Motion</label>
+                  <span class="setting-description">Minimize animations</span>
+                </div>
+                <div class="toggle">
+                  <input type="checkbox" id="reduced-motion" v-model="reducedMotion">
+                  <label for="reduced-motion"></label>
+                </div>
               </div>
             </div>
           </div>
@@ -268,6 +484,7 @@ const handleDockItemClick = (item) => {
   justify-content: center;
   padding: 20px 0;
   position: relative;
+  z-index: 1;
 }
 
 .dock {
@@ -279,6 +496,12 @@ const handleDockItemClick = (item) => {
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   position: relative;
+  z-index: 2;
+}
+
+.right-panel.expanded .dock {
+  transform: translateX(-15vh);
+  transition: transform 0.25s ease;
 }
 
 .dock-item {
@@ -327,6 +550,14 @@ const handleDockItemClick = (item) => {
   color: var(--primary-color);
 }
 
+.dock-item:focus {
+  outline: none;
+}
+
+.dock-item:focus .dock-icon {
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
+}
+
 .dock-label {
   position: absolute;
   left: -110px;
@@ -371,6 +602,7 @@ const handleDockItemClick = (item) => {
   display: flex;
   flex-direction: column;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+  z-index: 10;
 }
 
 .panel-header {
@@ -407,6 +639,11 @@ const handleDockItemClick = (item) => {
   color: rgba(255, 255, 255, 0.9);
 }
 
+.close-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
+}
+
 .close-btn svg {
   width: 18px;
   height: 18px;
@@ -422,6 +659,11 @@ const handleDockItemClick = (item) => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.content-section.library-section {
+  height: 100%;
+  overflow: hidden;
 }
 
 .info-card {
@@ -510,16 +752,37 @@ const handleDockItemClick = (item) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 14px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
+  gap: 12px;
+  transition: all 0.2s ease;
 }
 
-.setting-item label {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
-  font-weight: 500;
+.setting-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.setting-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setting-label label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.setting-description {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.3;
 }
 
 .toggle {
@@ -566,16 +829,31 @@ const handleDockItemClick = (item) => {
   transform: translateX(18px);
 }
 
+.toggle input:focus + label {
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.3);
+}
+
 .setting-select {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
-  padding: 5px 10px;
+  padding: 6px 12px;
   color: rgba(255, 255, 255, 0.9);
   font-size: 12px;
   font-family: 'Inter', sans-serif;
   cursor: pointer;
   outline: none;
+  transition: all 0.2s ease;
+}
+
+.setting-select:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.setting-select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2);
 }
 
 .shortcuts-grid {
@@ -621,6 +899,151 @@ const handleDockItemClick = (item) => {
   color: rgba(255, 255, 255, 0.6);
   text-align: center;
   line-height: 1.3;
+}
+
+/* Projects List */
+.projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.projects-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.projects-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 3px;
+}
+
+.projects-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.projects-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  gap: 10px;
+}
+
+.project-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateX(2px);
+}
+
+.project-item.active {
+  background: rgba(var(--primary-rgb), 0.15);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 12px rgba(var(--primary-rgb), 0.2);
+}
+
+.project-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-item.active .project-name {
+  color: var(--primary-color);
+}
+
+.project-status {
+  font-size: 10px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-status.saved {
+  color: rgba(76, 175, 80, 0.8);
+}
+
+.project-status.saved::before {
+  content: '●';
+  font-size: 8px;
+}
+
+.project-status.unsaved {
+  color: rgba(255, 152, 0, 0.8);
+}
+
+.project-status.unsaved::before {
+  content: '●';
+  font-size: 8px;
+}
+
+.project-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.project-close:hover {
+  background: rgba(255, 0, 0, 0.2);
+  color: rgba(255, 100, 100, 0.9);
+}
+
+.project-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 20px;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.empty-state svg {
+  width: 48px;
+  height: 48px;
+  opacity: 0.3;
+}
+
+.empty-state p {
+  font-size: 13px;
+  margin: 0;
 }
 
 /* Transitions */

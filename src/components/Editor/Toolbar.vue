@@ -17,6 +17,7 @@ import IconSave from '../Icons/IconSave.vue'
 import IconGrid from '../Icons/IconGrid.vue'
 import IconDownload from '../Icons/IconDownload.vue'
 import IconProjects from '../Icons/IconProjects.vue'
+import IconKeyboard from '../Icons/IconKeyboard.vue'
 
 const props = defineProps({
   currentTool: String,
@@ -26,7 +27,7 @@ const props = defineProps({
   showGrid: Boolean
 })
 
-const emit = defineEmits(['tool-change', 'undo', 'redo', 'save', 'open-projects', 'toggle-grid', 'export'])
+const emit = defineEmits(['tool-change', 'undo', 'redo', 'save', 'open-projects', 'toggle-grid', 'export', 'open-shortcuts'])
 
 const hoveredTool = ref(null)
 const toolPosition = ref({ x: 0 })
@@ -51,7 +52,8 @@ const tools = [
   { id: 'divider3', type: 'divider' },
   { id: 'projects', component: IconProjects, group: 'actions', hasOptions: false, tooltip: 'My Projects (Ctrl+O)' },
   { id: 'export', component: IconDownload, group: 'actions', hasOptions: false, tooltip: 'Export (Ctrl+E)' },
-  { id: 'save', component: IconSave, group: 'actions', hasOptions: false, tooltip: 'Save Project (Ctrl+S)' }
+  { id: 'save', component: IconSave, group: 'actions', hasOptions: false, tooltip: 'Save Project (Ctrl+S)' },
+  { id: 'shortcuts', component: IconKeyboard, group: 'actions', hasOptions: false, tooltip: 'Keyboard Shortcuts (?)' }
 ]
 
 // Get the base tool name (without option suffix)
@@ -86,7 +88,11 @@ const handleToolClick = (tool, event) => {
     emit('tool-change', 'zoom-in')
     return
   } else if (tool.id === 'zoom-out') {
+  } else if (tool.id === 'zoom-out') {
     emit('tool-change', 'zoom-out')
+    return
+  } else if (tool.id === 'shortcuts') {
+    emit('open-shortcuts')
     return
   }
   
@@ -187,6 +193,7 @@ const handleOptionSelect = (data) => {
           </div>
         </button>
       </template>
+      <slot name="extra-tools"></slot>
     </div>
     
   </div>
