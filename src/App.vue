@@ -532,4 +532,38 @@ watch(showSplash, (isShowing) => {
   position: relative;
   overflow: hidden;
 }
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .app {
+    flex-direction: row;
+    position: relative;
+  }
+  
+  .main-content {
+    width: 100%;
+    margin-left: 0;
+  }
+}
 </style>
+
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .app {
+    flex-direction: row;
+    position: relative;
+  }
+  
+  /* Hide desktop sidebar completely on mobile */
+  .app > .sidebar {
+    display: none;
+  }
+  
+  .main-content {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    z-index: 1;
+  }
+}

@@ -314,3 +314,35 @@ const brushPreviewStyle = computed(() => {
   position: relative;
   z-index: 1;
 }
+
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .brush-controls {
+    left: 50% !important;
+    top: 70px !important;
+    transform: translateX(-50%) !important;
+    width: calc(100% - 32px) !important;
+    max-width: 340px !important;
+    padding: 16px !important;
+    gap: 16px !important;
+  }
+  
+  .hover-trigger {
+    display: none !important;
+  }
+  
+  .slider-control label {
+    font-size: 11px !important;
+  }
+  
+  .value-display {
+    min-width: 48px !important;
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+  }
+  
+  .preview-container {
+    min-height: 80px !important;
+  }
+}

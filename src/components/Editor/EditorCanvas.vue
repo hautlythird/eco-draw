@@ -5,13 +5,22 @@ import { useHistory } from '@/composables/useHistory'
 import { useZoom } from '@/composables/useZoom'
 import { useLayers } from '@/composables/useLayers'
 import { useBotanicalData } from '@/composables/useBotanicalData'
-import { CANVAS_CONFIG, GRID_SCALES, PLANT_SPACING } from '@/constants/tools'
-import { generateElementId } from '@/utils/idGenerator'
+import { useCanvasElements } from '@/composables/useCanvasElements'
+import { useCanvasInteraction } from '@/composables/useCanvasInteraction'
+import { CANVAS_CONFIG, GRID_SCALES } from '@/constants/tools'
 import { logger } from '@/utils/logger'
 import StaticGridLayer from './StaticGridLayer.vue'
 import LayerTransformer from './LayerTransformer.vue'
+import CanvasBackground from './Canvas/CanvasBackground.vue'
+import CanvasGridOverlay from './Canvas/CanvasGridOverlay.vue'
+import CompanionOverlay from './Canvas/CompanionOverlay.vue'
+import ShapeElement from './Canvas/ShapeElement.vue'
+import ImageElement from './Canvas/ImageElement.vue'
+import PlantElement from './Canvas/PlantElement.vue'
+import CanvasUI from './Canvas/CanvasUI.vue'
 
 
+// Throttle function for performance
 const throttle = (func, delay) => {
   let lastCall = 0
   return function (...args) {
@@ -22,6 +31,47 @@ const throttle = (func, delay) => {
     }
   }
 }
+
+// Use canvas elements composable
+const {
+  lines,
+  shapes,
+  images,
+  texts,
+  konvaNodesMap,
+  createLine,
+  createShape,
+  createText,
+  createPlant,
+  updateLinePoints,
+  updateShapeSize,
+  clearAll: clearAllElements,
+  loadData: loadElementsData,
+  getData: getElementsData
+} = useCanvasElements()
+
+// Use canvas interaction composable
+const {
+  touchStartDistance,
+  touchStartPositions,
+  isPanning,
+  lastPanPosition,
+  isTwoFingerGesture,
+  initialStagePosition,
+  panVelocity,
+  lastPanTime,
+  isMiddleMousePanning,
+  middleMouseStartPos,
+  isMovingElement,
+  movingElement,
+  moveStartPos,
+  elementStartPos,
+  isRotatingDuringCreation,
+  creationStartPos,
+  currentRotationAngle,
+  getTransformedPointerPosition,
+  snapToGridPoint: snapToGridHelper
+} = useCanvasInteraction()
 
 const props = defineProps({
   tool: {
@@ -106,8 +156,16 @@ const gridScales = {
 }
 
 // Calculate actual export area dimensions in pixels (neon border area)
-const exportAreaWidthPx = computed(() => props.canvasSize.width * METER_TO_PIXELS)
-const exportAreaHeightPx = computed(() => props.canvasSize.height * METER_TO_PIXELS)
+// Ensure minimum dimensions to prevent canvas errors
+const exportAreaWidthPx = computed(() => {
+  const width = props.canvasSize.width * METER_TO_PIXELS
+  return Math.max(100, Math.floor(width)) // Minimum 100px, no fractional pixels
+})
+
+const exportAreaHeightPx = computed(() => {
+  const height = props.canvasSize.height * METER_TO_PIXELS
+  return Math.max(100, Math.floor(height)) // Minimum 100px, no fractional pixels
+})
 
 // Center the export area in the stage (this is the neon border area)
 const exportAreaOffsetX = computed(() => (stageConfig.value.width - exportAreaWidthPx.value) / 2)
@@ -115,10 +173,6 @@ const exportAreaOffsetY = computed(() => (stageConfig.value.height - exportAreaH
 
 // Grid is now in StaticGridLayer.vue component to prevent re-renders during zoom
 
-const lines = ref([])
-const shapes = ref([])
-const images = ref([])
-const texts = ref([])
 const isDrawing = ref(false)
 const selectedElement = ref(null)
 const showTagDialog = ref(false)
@@ -161,7 +215,6 @@ const compatibilityLines = ref([])
 
 // Transformer ref
 const transformerRef = ref(null)
-const konvaNodesMap = ref(new Map()) // Map element IDs to Konva nodes
 
 // 🌱 Agroecological overlay features
 const showCompanionCircles = ref(true)
@@ -171,31 +224,6 @@ const showSpacingGuides = ref(true)
 
 // Labels feature - can be enabled when needed
 const showLabels = ref(false)
-
-// Touch gesture tracking for two-finger pan
-const touchStartDistance = ref(0)
-const touchStartPositions = ref([])
-const isPanning = ref(false)
-const lastPanPosition = ref({ x: 0, y: 0 })
-const isTwoFingerGesture = ref(false)
-const initialStagePosition = ref({ x: 0, y: 0 })
-const panVelocity = ref({ x: 0, y: 0 })
-const lastPanTime = ref(0)
-
-// Middle mouse button panning
-const isMiddleMousePanning = ref(false)
-const middleMouseStartPos = ref({ x: 0, y: 0 })
-
-// Move tool state
-const isMovingElement = ref(false)
-const movingElement = ref(null)
-const moveStartPos = ref({ x: 0, y: 0 })
-const elementStartPos = ref({ x: 0, y: 0 })
-
-// Rotation state for geometric shapes during creation
-const isRotatingDuringCreation = ref(false)
-const creationStartPos = ref({ x: 0, y: 0 })
-const currentRotationAngle = ref(0)
 
 // Event listener cleanup reference
 let contextMenuHandler = null
@@ -248,38 +276,9 @@ const handleDrop = (e) => {
     const data = JSON.parse(e.dataTransfer.getData('application/json'))
     if (data.type === 'plant') {
       const plant = data.data
-      
-      // Parse spacing to get radius in pixels
-      const spacingMeters = parseSpacing(plant.spacing)
-      const spacingRadius = spacingMeters * METER_TO_PIXELS / 2
-      
-      // Get plant color accent
-      const plantColor = getPlantColor(plant.type)
-      
-      // Create a plant element with proper spacing visualization
-      const plantElement = {
-        id: generateElementId(),
-        tag: plant.name,
-        text: getItemIcon(plant.type),
-        x: pos.x,
-        y: pos.y,
-        fontSize: 48,
-        fontFamily: 'Inter, sans-serif',
-        fill: plantColor,
-        draggable: false, // Dragging handled by invisible area
-        plantId: plant.id,
-        plantType: plant.type,
-        scientificName: plant.scientificName,
-        plantingDate: new Date().toISOString(),
-        spacing: plant.spacing,
-        spacingRadius: spacingRadius,
-        spacingMeters: spacingMeters
-      }
-      
-      texts.value.push(plantElement)
+      createPlant(pos, plant)
       saveHistory({ lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value })
-      
-      logger.log('Plant dropped:', plant.name, 'at', pos, 'spacing:', spacingMeters + 'm')
+      logger.log('Plant dropped:', plant.name, 'at', pos)
     }
   } catch (err) {
     logger.error('Error handling drop:', err)
@@ -485,10 +484,7 @@ defineExpose({
     applyHistoryState(state)
   },
   clear: () => {
-    lines.value = []
-    shapes.value = []
-    images.value = []
-    texts.value = []
+    clearAllElements()
     saveHistory({ lines: [], shapes: [], images: [], texts: [] })
   },
   getStage: () => {
@@ -496,16 +492,37 @@ defineExpose({
   },
   exportCanvas: () => {
     // Export only the area within the neon border (export area)
-    if (!stageRef.value) return null
+    if (!stageRef.value) {
+      logger.error('Export failed: Stage ref not available')
+      return null
+    }
     
     try {
       const stage = stageRef.value.getStage()
+      if (!stage) {
+        logger.error('Export failed: Stage not initialized')
+        return null
+      }
       
-      // Create a temporary canvas for export
+      // Validate export dimensions
+      const width = exportAreaWidthPx.value
+      const height = exportAreaHeightPx.value
+      
+      if (!width || !height || width <= 0 || height <= 0) {
+        logger.error('Export failed: Invalid dimensions', { width, height, canvasSize: props.canvasSize })
+        return null
+      }
+      
+      // Create a temporary canvas for export with validated dimensions
       const exportCanvas = document.createElement('canvas')
-      exportCanvas.width = exportAreaWidthPx.value
-      exportCanvas.height = exportAreaHeightPx.value
+      exportCanvas.width = Math.max(1, Math.floor(width))
+      exportCanvas.height = Math.max(1, Math.floor(height))
+      
       const ctx = exportCanvas.getContext('2d')
+      if (!ctx) {
+        logger.error('Export failed: Could not get 2D context')
+        return null
+      }
       
       // Fill with background color
       ctx.fillStyle = '#0f0f0f'
@@ -515,13 +532,22 @@ defineExpose({
       const mainCanvas = stage.toCanvas({
         x: exportAreaOffsetX.value,
         y: exportAreaOffsetY.value,
-        width: exportAreaWidthPx.value,
-        height: exportAreaHeightPx.value,
+        width: exportCanvas.width,
+        height: exportCanvas.height,
         pixelRatio: 1
       })
       
+      // Validate main canvas before drawing
+      if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
+        logger.error('Export failed: Invalid main canvas dimensions', {
+          mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
+        })
+        return null
+      }
+      
       ctx.drawImage(mainCanvas, 0, 0)
       
+      logger.log('Canvas exported successfully', { width: exportCanvas.width, height: exportCanvas.height })
       return exportCanvas
     } catch (error) {
       logger.error('Error exporting canvas:', error)
@@ -529,16 +555,37 @@ defineExpose({
     }
   },
   getCanvasDataURL: (format = 'png', quality = 1) => {
-    if (!stageRef.value) return null
+    if (!stageRef.value) {
+      logger.error('getCanvasDataURL failed: Stage ref not available')
+      return null
+    }
     
     try {
       const stage = stageRef.value.getStage()
+      if (!stage) {
+        logger.error('getCanvasDataURL failed: Stage not initialized')
+        return null
+      }
       
-      // Create a temporary canvas for export
+      // Validate export dimensions
+      const width = exportAreaWidthPx.value
+      const height = exportAreaHeightPx.value
+      
+      if (!width || !height || width <= 0 || height <= 0) {
+        logger.error('getCanvasDataURL failed: Invalid dimensions', { width, height, canvasSize: props.canvasSize })
+        return null
+      }
+      
+      // Create a temporary canvas for export with validated dimensions
       const exportCanvas = document.createElement('canvas')
-      exportCanvas.width = exportAreaWidthPx.value
-      exportCanvas.height = exportAreaHeightPx.value
+      exportCanvas.width = Math.max(1, Math.floor(width))
+      exportCanvas.height = Math.max(1, Math.floor(height))
+      
       const ctx = exportCanvas.getContext('2d')
+      if (!ctx) {
+        logger.error('getCanvasDataURL failed: Could not get 2D context')
+        return null
+      }
       
       // Fill with background color
       ctx.fillStyle = '#0f0f0f'
@@ -548,33 +595,37 @@ defineExpose({
       const mainCanvas = stage.toCanvas({
         x: exportAreaOffsetX.value,
         y: exportAreaOffsetY.value,
-        width: exportAreaWidthPx.value,
-        height: exportAreaHeightPx.value,
+        width: exportCanvas.width,
+        height: exportCanvas.height,
         pixelRatio: 1
       })
+      
+      // Validate main canvas before drawing
+      if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
+        logger.error('getCanvasDataURL failed: Invalid main canvas dimensions', {
+          mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
+        })
+        return null
+      }
       
       ctx.drawImage(mainCanvas, 0, 0)
       
       const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png'
-      return exportCanvas.toDataURL(mimeType, quality)
+      const dataURL = exportCanvas.toDataURL(mimeType, quality)
+      
+      logger.log('Canvas data URL generated successfully', { format, quality, size: dataURL.length })
+      return dataURL
     } catch (error) {
       logger.error('Error getting canvas data URL:', error)
       return null
     }
   },
   getCanvasData: () => {
-    // Get canvas data without cloning for performance
-    return { lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value }
+    return getElementsData()
   },
   loadCanvas: (data) => {
-    // Load canvas data from saved state
-    if (data) {
-      lines.value = data.lines || []
-      shapes.value = data.shapes || []
-      images.value = data.images || []
-      texts.value = data.texts || []
-      saveHistory({ lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value })
-    }
+    loadElementsData(data)
+    saveHistory({ lines: lines.value, shapes: shapes.value, images: images.value, texts: texts.value })
   },
   zoomIn: centralizedZoomIn,
   zoomOut: centralizedZoomOut,
@@ -608,47 +659,7 @@ defineExpose({
   }
 })
 
-// Helper to get plant icon
-const getItemIcon = (type) => {
-  const iconMap = {
-    'FRUITS': '🍎',
-    'HERBS': '🌿',
-    'VEGETABLES': '🥕',
-    'ROOTS': '🥔',
-    'TREES': '🌳',
-    'FLOWERS': '🌸',
-    'CROPS': '🌾',
-    'INVASIVE_SPECIES': '⚠️'
-  }
-  return iconMap[type] || '🌱'
-}
-
-// Helper to get plant color accent
-const getPlantColor = (type) => {
-  const colorMap = {
-    'FRUITS': '#FF4081',
-    'HERBS': '#4CAF50',
-    'VEGETABLES': '#FF9800',
-    'ROOTS': '#8D6E63',
-    'TREES': '#2E7D32',
-    'FLOWERS': '#E91E63',
-    'CROPS': '#FFC107',
-    'INVASIVE_SPECIES': '#F44336'
-  }
-  return colorMap[type] || '#65FF86'
-}
-
-// Parse spacing string (e.g., "8-15m" or "0.3-0.5m") to get average in meters
-const parseSpacing = (spacingStr) => {
-  if (!spacingStr) return 1 // Default 1 meter
-  
-  const match = spacingStr.match(/([\d.]+)(?:-([\d.]+))?m?/)
-  if (!match) return 1
-  
-  const min = parseFloat(match[1])
-  const max = match[2] ? parseFloat(match[2]) : min
-  return (min + max) / 2
-}
+// Helper functions are now in useCanvasElements composable
 
 // Check compatibility between a plant and existing plants
 const checkPlacementCompatibility = (newPlant) => {
@@ -757,23 +768,9 @@ const handleElementDragEnd = (e, element) => {
 
 // Element click and double-click handlers are defined below after drag handlers
 
-const getTransformedPointerPosition = (stage) => {
-  const pos = stage.getPointerPosition()
-  if (!pos) return { x: 0, y: 0 }
-  
-  const transform = stage.getAbsoluteTransform().copy()
-  transform.invert()
-  return transform.point(pos)
-}
-
-// Snap point to grid (for infinite canvas)
+// Snap point to grid wrapper
 const snapToGridPoint = (x, y) => {
-  if (!props.snapToGrid) return { x, y }
-  
-  const snappedX = Math.round(x / gridSize) * gridSize
-  const snappedY = Math.round(y / gridSize) * gridSize
-  
-  return { x: snappedX, y: snappedY }
+  return snapToGridHelper(x, y, gridSize, props.snapToGrid)
 }
 
 // Improved drawing handler with better performance
@@ -878,19 +875,7 @@ const handleMouseDown = (e) => {
         fontSize = 16
       }
       
-      const textElement = {
-        id: generateElementId(),
-        tag: `Text ${texts.value.length + 1}`,
-        text: text,
-        x: pos.x,
-        y: pos.y,
-        fontSize: fontSize,
-        fontFamily: 'Inter, sans-serif',
-        fontStyle: fontWeight,
-        fill: props.brushColor,
-        draggable: true
-      }
-      texts.value.push(textElement)
+      createText(pos, text, fontSize, fontWeight, props.brushColor)
       saveHistory({ 
         lines: [...lines.value], 
         shapes: [...shapes.value],
@@ -904,120 +889,11 @@ const handleMouseDown = (e) => {
   isDrawing.value = true
   
   if (props.tool === 'brush' || props.tool === 'eraser') {
-    // Apply brush variant styles
-    let strokeWidth = props.brushThickness / 10
-    let tension = 0.5
-    let lineCap = 'round'
-    
-    if (props.toolOption === 'marker') {
-      strokeWidth = props.brushThickness / 8
-      tension = 0.3
-    } else if (props.toolOption === 'spray') {
-      strokeWidth = props.brushThickness / 12
-      tension = 0.8
-    } else if (props.toolOption === 'calligraphy') {
-      strokeWidth = props.brushThickness / 6
-      lineCap = 'square'
-    }
-    
-    const lineElement = {
-      id: generateElementId(),
-      tag: `${props.tool === 'eraser' ? 'Eraser' : 'Brush'} ${lines.value.length + 1}`,
-      tool: props.tool,
-      toolOption: props.toolOption,
-      points: [pos.x, pos.y, pos.x, pos.y],
-      stroke: props.brushColor,
-      strokeWidth: strokeWidth,
-      opacity: props.brushOpacity / 100,
-      tension: tension,
-      lineCap: lineCap,
-      lineJoin: 'round',
-      globalCompositeOperation: props.tool === 'eraser' ? 'destination-out' : 'source-over',
-      perfectDrawEnabled: false
-    }
-    lines.value.push(lineElement)
-  } else if (props.tool === 'square') {
-    const isFilled = props.toolOption === 'filled'
-    const isRounded = props.toolOption === 'rounded'
-    
+    createLine(pos, props.tool, props.toolOption, props.brushColor, props.brushThickness, props.brushOpacity)
+  } else if (props.tool === 'square' || props.tool === 'circle' || props.tool === 'triangle') {
     creationStartPos.value = { x: pos.x, y: pos.y }
-    currentRotationAngle.value = 0
-    
-    const shapeElement = {
-      id: generateElementId(),
-      tag: `Rectangle ${shapes.value.length + 1}`,
-      type: 'rect',
-      x: pos.x,
-      y: pos.y,
-      width: 0,
-      height: 0,
-      offsetX: 0,
-      offsetY: 0,
-      rotation: 0,
-      stroke: props.brushColor,
-      strokeWidth: 3,
-      fill: isFilled ? props.brushColor : 'transparent',
-      cornerRadius: isRounded ? 12 : 0,
-      opacity: isFilled ? props.brushOpacity / 100 : 1,
-      draggable: true,
-      shadowColor: props.brushColor,
-      shadowBlur: isFilled ? 0 : 8,
-      shadowOpacity: 0.3
-    }
-    shapes.value.push(shapeElement)
-  } else if (props.tool === 'circle') {
-    const isFilled = props.toolOption === 'filled'
-    const isEllipse = props.toolOption === 'ellipse'
-    
-    creationStartPos.value = { x: pos.x, y: pos.y }
-    currentRotationAngle.value = 0
-    
-    const shapeElement = {
-      id: generateElementId(),
-      tag: `${isEllipse ? 'Ellipse' : 'Circle'} ${shapes.value.length + 1}`,
-      type: isEllipse ? 'ellipse' : 'circle',
-      x: pos.x,
-      y: pos.y,
-      radius: 0,
-      radiusX: 0,
-      radiusY: 0,
-      rotation: 0,
-      stroke: props.brushColor,
-      strokeWidth: 3,
-      fill: isFilled ? props.brushColor : 'transparent',
-      opacity: isFilled ? props.brushOpacity / 100 : 1,
-      draggable: true,
-      shadowColor: props.brushColor,
-      shadowBlur: isFilled ? 0 : 8,
-      shadowOpacity: 0.3
-    }
-    shapes.value.push(shapeElement)
-  } else if (props.tool === 'triangle') {
-    const isFilled = props.toolOption === 'filled'
-    const isRight = props.toolOption === 'right'
-    
-    creationStartPos.value = { x: pos.x, y: pos.y }
-    currentRotationAngle.value = isRight ? 0 : 180
-    
-    const shapeElement = {
-      id: generateElementId(),
-      tag: `Triangle ${shapes.value.length + 1}`,
-      type: isRight ? 'right-triangle' : 'triangle',
-      x: pos.x,
-      y: pos.y,
-      sides: 3,
-      radius: 0,
-      stroke: props.brushColor,
-      strokeWidth: 3,
-      fill: isFilled ? props.brushColor : 'transparent',
-      rotation: isRight ? 0 : 180,
-      opacity: isFilled ? props.brushOpacity / 100 : 1,
-      draggable: true,
-      shadowColor: props.brushColor,
-      shadowBlur: isFilled ? 0 : 8,
-      shadowOpacity: 0.3
-    }
-    shapes.value.push(shapeElement)
+    currentRotationAngle.value = (props.tool === 'triangle' && props.toolOption !== 'right') ? 180 : 0
+    createShape(pos, props.tool, props.toolOption, props.brushColor, props.brushOpacity)
   }
 }
 
@@ -1152,51 +1028,11 @@ const handleMouseMove = (e) => {
   if (props.tool === 'brush' || props.tool === 'eraser') {
     const lastLine = lines.value[lines.value.length - 1]
     if (lastLine) {
-      const lastPoints = lastLine.points
-      const lastX = lastPoints[lastPoints.length - 2]
-      const lastY = lastPoints[lastPoints.length - 1]
-      
-      // Only add point if it's far enough from the last point (reduces redundant points)
-      const dx = point.x - lastX
-      const dy = point.y - lastY
-      const distSq = dx * dx + dy * dy
-      
-      if (distSq > 4) { // Use squared distance to avoid sqrt
-        lastLine.points = lastLine.points.concat([point.x, point.y])
-      }
+      updateLinePoints(lastLine, point)
     }
   } else if (shapes.value.length > 0) {
     const lastShape = shapes.value[shapes.value.length - 1]
-    const startX = creationStartPos.value.x
-    const startY = creationStartPos.value.y
-    
-    const dx = point.x - startX
-    const dy = point.y - startY
-    const distance = Math.sqrt(dx * dx + dy * dy)
-    const angle = Math.atan2(dy, dx) * (180 / Math.PI)
-    
-    if (lastShape.type === 'rect') {
-      const size = distance
-      lastShape.width = size
-      lastShape.height = size
-      lastShape.offsetX = size / 2
-      lastShape.offsetY = size / 2
-      lastShape.x = startX
-      lastShape.y = startY
-      lastShape.rotation = angle
-    } else if (lastShape.type === 'circle') {
-      lastShape.radius = distance
-      lastShape.rotation = angle
-    } else if (lastShape.type === 'ellipse') {
-      lastShape.radiusX = distance
-      lastShape.radiusY = distance * 0.6
-      lastShape.rotation = angle
-    } else if (lastShape.type === 'triangle' || lastShape.type === 'right-triangle') {
-      lastShape.radius = distance
-      const baseRotation = lastShape.type === 'right-triangle' ? 0 : 180
-      lastShape.rotation = baseRotation + angle
-    }
-    
+    const angle = updateShapeSize(lastShape, creationStartPos.value, point)
     currentRotationAngle.value = angle
   }
 }
@@ -1440,13 +1276,26 @@ const selectedKonvaNodes = computed(() => {
 
 // Initialize and handle window resize
 let resizeHandler = null
+const canvasContainerRef = ref(null)
 
-onMounted(() => {
-  resizeHandler = () => {
+const updateStageDimensions = () => {
+  // Get actual container dimensions instead of using hardcoded values
+  const container = document.querySelector('.canvas-container')
+  if (container) {
+    const rect = container.getBoundingClientRect()
+    updateStageConfig(rect.width, rect.height)
+  } else {
+    // Fallback to window dimensions minus estimated UI
     updateStageConfig(
       window.innerWidth - 280,
       window.innerHeight - 80
     )
+  }
+}
+
+onMounted(() => {
+  resizeHandler = () => {
+    updateStageDimensions()
   }
   
   window.addEventListener('resize', resizeHandler)
@@ -1459,8 +1308,10 @@ onMounted(() => {
     canvas.addEventListener('contextmenu', contextMenuHandler)
   }
   
-  // Initial setup
+  // Initial setup with actual dimensions
   nextTick(() => {
+    updateStageDimensions()
+    
     logger.log('Infinite Canvas initialized:', {
       stage: stageConfig.value,
       exportArea: { width: exportAreaWidthPx.value, height: exportAreaHeightPx.value },
@@ -1511,6 +1362,7 @@ onUnmounted(() => {
       y: stagePosition.y,
       draggable: false
     }"
+    class="konva-stage"
     @mousedown="handleMouseDown"
     @mousemove="handleMouseMove"
     @mouseup="handleMouseUp"
@@ -1520,264 +1372,42 @@ onUnmounted(() => {
     @touchend="handleTouchEnd"
     @wheel="throttledHandleWheel"
     >
-      <!-- Background & Overlays Layer (Combined) -->
-      <v-layer :config="{ listening: false }">
-        <!-- Infinite dark background -->
-        <v-rect
-          :config="{
-            x: -stagePosition.x / stageScale - CANVAS_CONFIG.STAGE_PADDING,
-            y: -stagePosition.y / stageScale - CANVAS_CONFIG.STAGE_PADDING,
-            width: CANVAS_CONFIG.STAGE_PADDING * 2,
-            height: CANVAS_CONFIG.STAGE_PADDING * 2,
-            fill: '#0a0a0a',
-            listening: false
-          }"
-        />
-        
-        <!-- Export area background (slightly lighter) -->
-        <v-rect
-          :config="{
-            x: exportAreaOffsetX,
-            y: exportAreaOffsetY,
-            width: exportAreaWidthPx,
-            height: exportAreaHeightPx,
-            fill: '#0f0f0f',
-            listening: false
-          }"
-        />
-        
-        <!-- 🌞 Sun Zones (optional overlay) -->
-        <template v-if="showSunZones && showGrid">
-          <v-rect
-            v-for="(zone, i) in sunZones"
-            :key="`sun-zone-${i}`"
-            :config="zone"
-          />
-          <!-- Sun zone labels -->
-        <v-text
-          :config="{
-            x: exportAreaOffsetX + exportAreaWidthPx / 6 - 30,
-            y: exportAreaOffsetY + 20,
-            text: '☀️ Full Sun',
-            fontSize: 14,
-            fontFamily: 'Inter, sans-serif',
-            fill: 'rgba(255, 215, 0, 0.8)',
-            fontStyle: 'bold',
-            listening: false
-          }"
-        />
-        <v-text
-          :config="{
-            x: exportAreaOffsetX + exportAreaWidthPx / 2 - 50,
-            y: exportAreaOffsetY + 20,
-            text: '⛅ Partial Shade',
-            fontSize: 14,
-            fontFamily: 'Inter, sans-serif',
-            fill: 'rgba(255, 165, 0, 0.8)',
-            fontStyle: 'bold',
-            listening: false
-          }"
-        />
-        <v-text
-          :config="{
-            x: exportAreaOffsetX + exportAreaWidthPx * 5 / 6 - 45,
-            y: exportAreaOffsetY + 20,
-            text: '🌙 Full Shade',
-            fontSize: 14,
-            fontFamily: 'Inter, sans-serif',
-            fill: 'rgba(138, 43, 226, 0.8)',
-            fontStyle: 'bold',
-            listening: false
-          }"
-        />
-        </template>
-        
-        <!-- 💧 Water Zones (optional overlay) -->
-        <template v-if="showWaterZones && showGrid">
-          <v-rect
-            v-for="(zone, i) in waterZones"
-            :key="`water-zone-${i}`"
-            :config="zone"
-          />
-          <!-- Water zone labels -->
-        <v-text
-          :config="{
-            x: exportAreaOffsetX + 20,
-            y: exportAreaOffsetY + exportAreaHeightPx / 6 - 10,
-            text: '💧💧💧 High Water',
-            fontSize: 14,
-            fontFamily: 'Inter, sans-serif',
-            fill: 'rgba(0, 191, 255, 0.9)',
-            fontStyle: 'bold',
-            listening: false
-          }"
-        />
-        <v-text
-          :config="{
-            x: exportAreaOffsetX + 20,
-            y: exportAreaOffsetY + exportAreaHeightPx / 2 - 10,
-            text: '💧💧 Medium Water',
-            fontSize: 14,
-            fontFamily: 'Inter, sans-serif',
-            fill: 'rgba(0, 191, 255, 0.7)',
-            fontStyle: 'bold',
-            listening: false
-          }"
-        />
-        <v-text
-          :config="{
-            x: exportAreaOffsetX + 20,
-            y: exportAreaOffsetY + exportAreaHeightPx * 5 / 6 - 10,
-            text: '💧 Low Water',
-            fontSize: 14,
-            fontFamily: 'Inter, sans-serif',
-            fill: 'rgba(0, 191, 255, 0.5)',
-            fontStyle: 'bold',
-            listening: false
-          }"
-        />
-        </template>
-      </v-layer>
+      <!-- Background & Overlays Layer -->
+      <CanvasBackground
+        :stage-position="stagePosition"
+        :stage-scale="stageScale"
+        :export-area-offset-x="exportAreaOffsetX"
+        :export-area-offset-y="exportAreaOffsetY"
+        :export-area-width-px="exportAreaWidthPx"
+        :export-area-height-px="exportAreaHeightPx"
+        :show-sun-zones="showSunZones"
+        :show-water-zones="showWaterZones"
+        :show-grid="showGrid"
+        :canvas-size="canvasSize"
+        :brush-color="brushColor"
+      />
       
       <!-- Static Grid Layer - Never re-renders during zoom -->
       <StaticGridLayer :show-grid="showGrid" />
       
-      <!-- Grid Overlays & UI Layer (Combined) -->
-      <v-layer v-if="showGrid" :config="{ listening: false }">
-        <v-circle
-          v-for="(circle, i) in companionCircles"
-          :key="`companion-circle-${i}`"
-          :config="circle"
-        />
-
-        <!-- 🤝 Compatibility Lines -->
-        <v-line
-          v-for="(line, i) in compatibilityLines"
-          :key="`compat-line-${i}`"
-          :config="line"
-        />
-                
-        <!-- 🌱 Compact info panel (only shows when zoomed out) -->
-        <v-group v-if="stageScale <= 1.2">
-          <v-rect
-            :config="{
-              x: exportAreaOffsetX + 10,
-              y: exportAreaOffsetY + 10,
-              width: 200,
-              height: 60,
-              fill: 'rgba(0, 0, 0, 0.85)',
-              cornerRadius: 10,
-              listening: false,
-              shadowColor: '#65FF86',
-              shadowBlur: 15,
-              shadowOpacity: 0.4,
-              stroke: 'rgba(101, 255, 134, 0.2)',
-              strokeWidth: 1
-            }"
-          />
-          <v-text
-            :config="{
-              x: exportAreaOffsetX + 20,
-              y: exportAreaOffsetY + 20,
-              text: `🌿 ${canvasSize.width}m × ${canvasSize.height}m`,
-              fontSize: 14,
-              fontFamily: 'Inter, sans-serif',
-              fill: '#65FF86',
-              fontStyle: 'bold',
-              listening: false
-            }"
-          />
-          <v-text
-            :config="{
-              x: exportAreaOffsetX + 20,
-              y: exportAreaOffsetY + 42,
-              text: `${canvasSize.width * canvasSize.height}m² | ${GRID_SIZE_METERS}m grid`,
-              fontSize: 11,
-              fontFamily: 'Inter, sans-serif',
-              fill: 'rgba(255, 255, 255, 0.7)',
-              listening: false
-            }"
-          />
-        </v-group>
-        
-        <!-- 📏 Simplified Rulers (only at zoom > 0.8) -->
-        <template v-if="stageScale > 0.8">
-          <!-- Top ruler markings (every 5 meters only) -->
-        <template v-for="i in Math.ceil(canvasSize.width / 5)" :key="`ruler-top-${i}`">
-          <v-line
-            :config="{
-              points: [
-                exportAreaOffsetX + i * 5 * METER_TO_PIXELS,
-                exportAreaOffsetY - 15,
-                exportAreaOffsetX + i * 5 * METER_TO_PIXELS,
-                exportAreaOffsetY
-              ],
-              stroke: 'rgba(101, 255, 134, 0.5)',
-              strokeWidth: 2,
-              listening: false
-            }"
-          />
-          <v-text
-            :config="{
-              x: exportAreaOffsetX + i * 5 * METER_TO_PIXELS - 12,
-              y: exportAreaOffsetY - 28,
-              text: `${i * 5}m`,
-              fontSize: 11,
-              fontFamily: 'Inter, monospace',
-              fill: '#65FF86',
-              listening: false,
-              shadowColor: '#000',
-              shadowBlur: 4
-            }"
-          />
-        </template>
-        
-        <!-- Left ruler markings (every 5 meters only) -->
-        <template v-for="i in Math.ceil(canvasSize.height / 5)" :key="`ruler-left-${i}`">
-          <v-line
-            :config="{
-              points: [
-                exportAreaOffsetX - 15,
-                exportAreaOffsetY + i * 5 * METER_TO_PIXELS,
-                exportAreaOffsetX,
-                exportAreaOffsetY + i * 5 * METER_TO_PIXELS
-              ],
-              stroke: 'rgba(101, 255, 134, 0.5)',
-              strokeWidth: 2,
-              listening: false
-            }"
-          />
-          <v-text
-            :config="{
-              x: exportAreaOffsetX - 35,
-              y: exportAreaOffsetY + i * 5 * METER_TO_PIXELS - 6,
-              text: `${i * 5}m`,
-              fontSize: 11,
-              fontFamily: 'Inter, monospace',
-              fill: '#65FF86',
-              listening: false,
-              shadowColor: '#000',
-              shadowBlur: 4
-            }"
-          />
-        </template>
-        </template>
-        
-        <!-- Export Area Border (dashed line only) -->
-        <v-rect
-          :config="{
-            x: exportAreaOffsetX,
-            y: exportAreaOffsetY,
-            width: exportAreaWidthPx,
-            height: exportAreaHeightPx,
-            stroke: props.brushColor,
-            strokeWidth: 2,
-            dash: [20, 10],
-            listening: false,
-            opacity: 0.6
-          }"
-        />
-      </v-layer>
+      <!-- Companion Overlay Layer -->
+      <CompanionOverlay
+        :show-companion-circles="showCompanionCircles"
+        :images="images"
+        :compatibility-lines="compatibilityLines"
+      />
+      
+      <!-- Grid Overlays & UI Layer -->
+      <CanvasGridOverlay
+        :show-grid="showGrid"
+        :stage-scale="stageScale"
+        :export-area-offset-x="exportAreaOffsetX"
+        :export-area-offset-y="exportAreaOffsetY"
+        :export-area-width-px="exportAreaWidthPx"
+        :export-area-height-px="exportAreaHeightPx"
+        :canvas-size="canvasSize"
+        :brush-color="brushColor"
+      />
       
       <!-- Drawing Layer -->
       <v-layer>
@@ -1788,117 +1418,80 @@ onUnmounted(() => {
           :config="line"
         />
         
-        <!-- Draw all rectangles with labels grouped together -->
-        <template v-for="shape in shapes.filter(s => s.type === 'rect')" :key="`rect-group-${shape.id}`">
-          <!-- Layer border for selected elements -->
-          <v-rect
-            v-if="isLayerSelected(shape.id)"
-            :key="`rect-border-${shape.id}`"
-            :config="{
-              x: shape.x - 5,
-              y: shape.y - 5,
-              width: shape.width + 10,
-              height: shape.height + 10,
-              stroke: props.brushColor,
-              strokeWidth: 2,
-              dash: [8, 4],
-              listening: false,
-              opacity: 0.6
-            }"
-          />
-          <v-rect
-            :ref="(el) => { if (el) konvaNodesMap.set(shape.id, el.getNode()) }"
-            :config="{
-              ...shape,
-              id: shape.id,
-              shadowForStrokeEnabled: true,
-              shadowColor: shape.shadowColor || shape.stroke,
-              shadowBlur: shape.shadowBlur || 0,
-              shadowOpacity: shape.shadowOpacity || 0
-            }"
-            @mouseenter="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'grab' }"
-            @mouseleave="(e) => { if (!isDrawing.value && !isMovingElement.value) e.target.getStage().container().style.cursor = 'default' }"
-            @dragstart="(e) => handleElementDragStart(e, shape)"
-            @dragmove="(e) => handleElementDragMove(e, shape)"
-            @dragend="(e) => handleElementDragEnd(e, shape)"
-            @click="(e) => handleElementClick(shape, e, e.target)"
-            @tap="(e) => handleElementClick(shape, e, e.target)"
-            @dblclick="handleElementDoubleClick(shape, $event)"
-            @dbltap="handleElementDoubleClick(shape, $event)"
-          />
-          <!-- Label components for rectangles -->
-          <template v-if="showLabels && shape.tag">
-            <v-rect
-              :key="`rect-label-bg-${shape.id}`"
-              :config="{
-                x: shape.x + shape.width / 2 - (shape.tag.length * 4 + 8),
-                y: shape.y - 32,
-                width: shape.tag.length * 8 + 16,
-                height: 24,
-                fill: 'rgba(0, 0, 0, 0.9)',
-                cornerRadius: 6,
-                shadowColor: shape.stroke,
-                shadowBlur: 15,
-                shadowOpacity: 0.9,
-                listening: false,
-                stroke: shape.stroke,
-                strokeWidth: 1,
-                opacity: 0.95
-              }"
-            />
-            <v-text
-              :key="`rect-label-text-${shape.id}`"
-              :config="{
-                x: shape.x + shape.width / 2 - (shape.tag.length * 4) + 8,
-                y: shape.y - 27,
-                text: shape.tag,
-                fontSize: 13,
-                fontFamily: 'Inter, sans-serif',
-                fill: shape.stroke,
-                fontStyle: 'bold',
-                listening: false,
-                shadowColor: shape.stroke,
-                shadowBlur: 10,
-                shadowOpacity: 1
-              }"
-            />
-            <v-line
-              :key="`rect-label-line-${shape.id}`"
-              :config="{
-                points: [
-                  shape.x + shape.width / 2,
-                  shape.y - 20,
-                  shape.x + shape.width / 2,
-                  shape.y
-                ],
-                stroke: shape.stroke,
-                strokeWidth: 1.5,
-                dash: [4, 4],
-                opacity: 0.4,
-                listening: false
-              }"
-            />
-          </template>
-        </template>
+        <!-- Draw all shapes using ShapeElement component -->
+        <ShapeElement
+          v-for="shape in shapes"
+          :key="`shape-${shape.id}`"
+          :shape="shape"
+          :is-selected="isLayerSelected(shape.id)"
+          :show-labels="showLabels"
+          :brush-color="brushColor"
+          :is-drawing="isDrawing"
+          :is-moving-element="isMovingElement"
+          @dragstart="handleElementDragStart"
+          @dragmove="handleElementDragMove"
+          @dragend="handleElementDragEnd"
+          @click="handleElementClick"
+          @dblclick="handleElementDoubleClick"
+          @node-ref="(id, node) => konvaNodesMap.set(id, node)"
+        />
         
-        <!-- Draw all circles with labels grouped together -->
-        <template v-for="shape in shapes.filter(s => s.type === 'circle')" :key="`circle-group-${shape.id}`">
-          <!-- Layer border for selected elements -->
-          <v-circle
-            v-if="isLayerSelected(shape.id)"
-            :key="`circle-border-${shape.id}`"
-            :config="{
-              x: shape.x,
-              y: shape.y,
-              radius: shape.radius + 5,
-              stroke: props.brushColor,
-              strokeWidth: 2,
-              dash: [8, 4],
-              listening: false,
-              opacity: 0.6
-            }"
-          />
-          <v-circle
+        <!-- Draw all images using ImageElement component -->
+        <ImageElement
+          v-for="img in images"
+          :key="`image-${img.id}`"
+          :image="img"
+          :is-selected="isLayerSelected(img.id)"
+          :show-labels="showLabels"
+          :brush-color="brushColor"
+          :is-drawing="isDrawing"
+          :is-moving-element="isMovingElement"
+          @dragstart="handleElementDragStart"
+          @dragmove="handleElementDragMove"
+          @dragend="handleElementDragEnd"
+          @click="handleElementClick"
+          @dblclick="handleElementDoubleClick"
+          @node-ref="(id, node) => konvaNodesMap.set(id, node)"
+        />
+        
+        <!-- Draw all plants/texts using PlantElement component -->
+        <PlantElement
+          v-for="text in texts"
+          :key="`plant-${text.id}`"
+          :plant="text"
+          :is-selected="isLayerSelected(text.id)"
+          :brush-color="brushColor"
+          :is-drawing="isDrawing"
+          :is-moving-element="isMovingElement"
+          :snap-to-grid="snapToGrid"
+          @dragstart="handleElementDragStart"
+          @dragmove="(e, plant) => {
+            if (isDrawing) {
+              e.evt.preventDefault()
+              return false
+            }
+            const node = e.target
+            plant.x = node.x()
+            plant.y = node.y()
+            if (snapToGrid) {
+              const snapped = snapToGridPoint(plant.x, plant.y)
+              plant.x = snapped.x
+              plant.y = snapped.y
+              node.position({ x: snapped.x, y: snapped.y })
+            }
+            if (plant.plantId) {
+              checkPlacementCompatibility(plant)
+            }
+          }"
+          @dragend="handleElementDragEnd"
+          @click="handleElementClick"
+          @dblclick="handleElementDoubleClick"
+          @node-ref="(id, node) => konvaNodesMap.set(id, node)"
+        />
+        
+        
+        <!-- Layer Transformer for selected elements -->
+        <LayerTransformer
             :ref="(el) => { if (el) konvaNodesMap.set(shape.id, el.getNode()) }"
             :config="{
               ...shape,
@@ -2542,9 +2135,8 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  min-width: 0;
+  min-height: 0;
   cursor: default;
 }
 
@@ -2939,3 +2531,50 @@ onUnmounted(() => {
 
 
 
+
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .zoom-indicator {
+    bottom: 20px;
+    right: 70px;
+    font-size: 12px;
+    padding: 8px 16px;
+    z-index: 10;
+  }
+  
+  .gesture-indicator {
+    top: 60px;
+    font-size: 12px;
+    padding: 8px 16px;
+    z-index: 10;
+  }
+  
+  .gesture-indicator svg {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .tag-dialog {
+    min-width: 280px;
+    max-width: calc(100vw - 40px);
+    padding: 20px;
+    z-index: 1100;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    margin-top: 0;
+  }
+  
+  .rotation-indicator {
+    bottom: 20px;
+    left: 20px;
+    z-index: 10;
+    min-width: 140px;
+    padding: 12px 16px;
+  }
+  
+  .rotation-value {
+    font-size: 18px;
+  }
+}

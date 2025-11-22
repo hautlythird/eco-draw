@@ -6,6 +6,9 @@ import ColorWheel from '../ColorPicker/ColorWheel.vue'
 
 const emit = defineEmits(['tool-change', 'canvas-size-change', 'color-change', 'layer-select', 'layer-delete'])
 
+// Mobile menu state
+const isMobileMenuOpen = ref(false)
+
 const { primaryColor, colorVariants } = useTheme()
 const { 
   layers, 
@@ -131,7 +134,20 @@ const displayLayers = computed(() => {
 </script>
 
 <template>
-  <div class="sidebar">
+  <!-- Mobile Menu Toggle Button -->
+  <button class="mobile-menu-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen" :aria-label="isMobileMenuOpen ? 'Close menu' : 'Open menu'">
+    <svg v-if="!isMobileMenuOpen" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+    </svg>
+    <svg v-else viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+    </svg>
+  </button>
+  
+  <!-- Mobile Overlay -->
+  <div class="mobile-overlay" :class="{ show: isMobileMenuOpen }" @click="isMobileMenuOpen = false"></div>
+  
+  <div class="sidebar" :class="{ 'mobile-open': isMobileMenuOpen }">
     <div class="user-section">
       <div class="user-avatar">
         <svg viewBox="0 0 24 24" fill="currentColor">
@@ -289,6 +305,25 @@ const displayLayers = computed(() => {
 
     <div class="time-display">{{ currentTime }}</div>
   </div>
+
+  <!-- Mobile Floating Color Wheel -->
+  <div 
+    class="mobile-color-wheel" 
+    @click="handleColorWheelClick"
+    @touchstart.prevent="handleColorWheelClick"
+    :style="{ background: colorVariants.gradient }"
+  >
+    <div class="color-wheel-inner"></div>
+  </div>
+
+  <!-- Mobile Color Wheel Popup -->
+  <ColorWheel
+    v-if="showColorWheel"
+    :selected-color="primaryColor"
+    @color-change="handleColorChange"
+    @close="showColorWheel = false"
+    class="mobile-color-wheel-popup"
+  />
 </template>
 
 
@@ -305,6 +340,74 @@ const displayLayers = computed(() => {
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 260px;
+    z-index: 1001;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.7);
+    background: rgba(15, 15, 15, 0.98);
+    backdrop-filter: blur(20px);
+    padding: 60px 16px 20px 16px; /* Top padding for hamburger menu */
+  }
+  
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  
+  .user-avatar {
+    width: 60px !important;
+    height: 60px !important;
+  }
+  
+  .user-avatar svg {
+    width: 30px !important;
+    height: 30px !important;
+  }
+  
+  .user-name {
+    font-size: 14px !important;
+  }
+  
+  .nav-item {
+    padding: 10px !important;
+  }
+  
+  .nav-item svg {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  
+  .nav-item span {
+    font-size: 10px !important;
+  }
+  
+  .color-wheel {
+    width: 80px !important;
+    height: 80px !important;
+  }
+  
+  .color-wheel-inner {
+    width: 32px !important;
+    height: 32px !important;
+  }
+  
+  .time-display {
+    font-size: 16px !important;
+    padding: 8px 12px !important;
+  }
+  
+  .layers-panel,
+  .canvas-size-panel {
+    max-height: 300px !important;
+  }
 }
 
 .user-section {
@@ -751,5 +854,199 @@ const displayLayers = computed(() => {
 
 .apply-size-btn:active {
   transform: translateY(0);
+}
+
+/* Mobile Menu Toggle Button - Hidden by default */
+.mobile-menu-toggle {
+  display: none;
+}
+
+/* Mobile Overlay - Hidden by default */
+.mobile-overlay {
+  display: none;
+}
+
+/* Mobile Floating Color Wheel - Hidden by default */
+.mobile-color-wheel {
+  display: none;
+}
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  /* Hamburger menu button */
+  .mobile-menu-toggle {
+    display: flex !important;
+    position: fixed;
+    top: 3px;
+    left: 4px;
+    z-index: 1002;
+    width: 44px;
+    height: 44px;
+    background: rgba(10, 10, 10, 0.9);
+    border: 1px solid rgba(var(--primary-rgb), 0.3);
+    border-radius: 10px;
+    color: var(--primary-color);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(10px);
+  }
+  
+  .mobile-menu-toggle:hover,
+  .mobile-menu-toggle:active {
+    background: rgba(var(--primary-rgb), 0.2);
+    border-color: var(--primary-color);
+    transform: scale(1.05);
+  }
+  
+  .mobile-menu-toggle svg {
+    width: 22px;
+    height: 22px;
+  }
+  
+  /* Overlay - only shows when menu is open */
+  .mobile-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+    pointer-events: none;
+  }
+  
+  .mobile-overlay.show {
+    display: block;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.3s ease, visibility 0s linear 0s;
+    pointer-events: all;
+  }
+  
+  /* Sidebar - hidden by default, slides in when open */
+  .sidebar {
+    position: fixed !important;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 260px;
+    z-index: 1001;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.7);
+    background: rgba(15, 15, 15, 0.98) !important;
+    backdrop-filter: blur(20px);
+    padding: 60px 16px 20px 16px;
+    transition: transform 0.3s ease, visibility 0s linear 0.3s;
+    visibility: hidden;
+  }
+  
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.3s ease, visibility 0s linear 0s;
+  }
+  
+  .user-avatar {
+    width: 60px !important;
+    height: 60px !important;
+  }
+  
+  .user-avatar svg {
+    width: 30px !important;
+    height: 30px !important;
+  }
+  
+  .user-name {
+    font-size: 14px !important;
+  }
+  
+  .nav-item {
+    padding: 10px !important;
+  }
+  
+  .nav-item svg {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  
+  .nav-item span {
+    font-size: 10px !important;
+  }
+  
+  .color-wheel {
+    width: 80px !important;
+    height: 80px !important;
+  }
+  
+  .color-wheel-inner {
+    width: 32px !important;
+    height: 32px !important;
+  }
+  
+  .time-display {
+    font-size: 16px !important;
+    padding: 8px 12px !important;
+  }
+  
+  .layers-panel,
+  .canvas-size-panel {
+    max-height: 300px !important;
+  }
+  
+  /* Hide the sidebar color wheel on mobile */
+  .sidebar .color-wheel {
+    display: none !important;
+  }
+  
+  /* Show mobile floating color wheel */
+  .mobile-color-wheel {
+    display: flex !important;
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    filter: drop-shadow(0 4px 16px rgba(var(--primary-rgb), 0.6));
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+  }
+  
+  .mobile-color-wheel:active {
+    transform: translateX(-50%) scale(1.05);
+    filter: drop-shadow(0 6px 20px rgba(var(--primary-rgb), 0.8));
+    border-color: rgba(255, 255, 255, 0.5);
+  }
+  
+  .mobile-color-wheel .color-wheel-inner {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  
+  /* Mobile Color Wheel Popup - show on mobile */
+  .mobile-color-wheel-popup {
+    display: block !important;
+  }
+}
+
+/* Hide mobile color wheel popup on desktop */
+.mobile-color-wheel-popup {
+  display: none;
 }
 </style>

@@ -469,6 +469,66 @@ const handlePanelKeydown = (event) => {
   width: 340px;
 }
 
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .right-panel {
+    position: fixed;
+    right: 0;
+    top: 60px;
+    bottom: 0;
+    width: 56px;
+    z-index: 900;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  
+  .right-panel.expanded {
+    width: 100%;
+    max-width: 320px;
+  }
+  
+  .tabs-section {
+    display: none;
+  }
+  
+  .dock-container {
+    padding: 10px 0;
+  }
+  
+  .dock {
+    padding: 8px 6px;
+    gap: 6px;
+  }
+  
+  .dock-icon {
+    width: 40px !important;
+    height: 40px !important;
+  }
+  
+  .dock-icon svg {
+    width: 20px !important;
+    height: 20px !important;
+  }
+  
+  .dock-label {
+    left: -100px !important;
+    font-size: 11px !important;
+  }
+  
+  .content-panel {
+    left: 56px;
+    width: calc(100% - 56px);
+    max-width: 280px;
+  }
+  
+  .panel-body {
+    padding: 16px;
+  }
+  
+  .shortcuts-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 .tabs-section {
   flex-shrink: 0;
   background: rgba(15, 15, 15, 0.98);
@@ -1072,3 +1132,91 @@ const handlePanelKeydown = (event) => {
   opacity: 0;
 }
 </style>
+
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .right-panel {
+    position: fixed;
+    right: 0;
+    top: 50px;
+    bottom: 0;
+    width: auto;
+    background: transparent;
+    border-left: none;
+    z-index: 850;
+  }
+  
+  .right-panel.expanded {
+    width: 100%;
+  }
+  
+  .tabs-section {
+    display: none;
+  }
+  
+  .dock-container {
+    padding: 0;
+    background: transparent !important;
+    visibility: hidden;
+  }
+  
+  .dock {
+    padding: 8px 4px;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    visibility: visible;
+  }
+  
+  .dock-item {
+    transition: all 0.2s ease;
+  }
+  
+  .dock-icon {
+    width: 44px !important;
+    height: 44px !important;
+    background: transparent !important;
+    backdrop-filter: none;
+    border: none !important;
+    box-shadow: none;
+  }
+  
+  .dock-item:hover .dock-icon,
+  .dock-item.active .dock-icon {
+    background: rgba(var(--primary-rgb), 0.2) !important;
+    border-color: rgba(var(--primary-rgb), 0.4) !important;
+  }
+  
+  .dock-icon svg {
+    width: 22px !important;
+    height: 22px !important;
+  }
+  
+  .dock-label {
+    left: -110px !important;
+    font-size: 11px !important;
+    padding: 4px 10px !important;
+  }
+  
+  .content-panel {
+    left: auto;
+    right: 56px;
+    top: 50px;
+    bottom: 0;
+    width: 280px;
+    max-width: calc(100vw - 72px);
+    background: rgba(10, 10, 10, 0.98);
+    backdrop-filter: blur(20px);
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+  }
+  
+  .panel-body {
+    padding: 16px;
+  }
+  
+  .shortcuts-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

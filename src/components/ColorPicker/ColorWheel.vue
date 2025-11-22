@@ -286,9 +286,18 @@ onUnmounted(() => {
   position: fixed;
   left: 300px;
   bottom: 120px;
-  z-index: 200;
+  z-index: 1100;
   animation: slideIn 0.3s ease;
   touch-action: none;
+}
+
+/* Mobile positioning */
+@media (max-width: 768px) {
+  .color-wheel-container {
+    left: 50%;
+    bottom: 110px;
+    transform: translateX(-50%);
+  }
 }
 
 @keyframes slideIn {
@@ -302,6 +311,19 @@ onUnmounted(() => {
   }
 }
 
+@media (max-width: 768px) {
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(20px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+  }
+}
+
 .color-wheel-panel {
   background: rgba(15, 15, 15, 0.98);
   backdrop-filter: blur(30px);
@@ -310,6 +332,15 @@ onUnmounted(() => {
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.1);
   min-width: 340px;
+}
+
+@media (max-width: 768px) {
+  .color-wheel-panel {
+    min-width: 300px;
+    max-width: 90vw;
+    padding: 20px;
+    border-radius: 20px;
+  }
 }
 
 .wheel-header {
@@ -362,6 +393,15 @@ onUnmounted(() => {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   touch-action: none;
   user-select: none;
+}
+
+@media (max-width: 768px) {
+  .color-canvas {
+    max-width: 240px;
+    max-height: 240px;
+    width: 100%;
+    height: auto;
+  }
 }
 
 .color-info {
