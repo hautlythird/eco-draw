@@ -54,25 +54,93 @@ export function useCanvasElements() {
     return (min + max) / 2
   }
 
-  const createLine = (pos, tool, toolOption, brushColor, brushThickness, brushOpacity) => {
+  const createLine = (pos, tool, toolOption, brushColor, brushThickness, brushOpacity, advancedBrushSettings = null) => {
     let strokeWidth = brushThickness / 10
     let tension = 0.5
     let lineCap = 'round'
-    
-    if (toolOption === 'marker') {
-      strokeWidth = brushThickness / 8
-      tension = 0.3
-    } else if (toolOption === 'spray') {
-      strokeWidth = brushThickness / 12
-      tension = 0.8
-    } else if (toolOption === 'calligraphy') {
-      strokeWidth = brushThickness / 6
-      lineCap = 'square'
+    let shadowBlur = 0
+    let shadowColor = brushColor
+    let shadowOpacity = 0.5
+    let globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over'
+
+    // Handle professional pencil types
+    if (advancedBrushSettings) {
+      const pencilType = advancedBrushSettings.pencilType || 'HB'
+      const paperTexture = advancedBrushSettings.paperTexture || 'MEDIUM'
+      const textureIntensity = advancedBrushSettings.textureIntensity || 1.0
+      const smudgeFactor = advancedBrushSettings.smudgeFactor || 0.3
+
+      // Apply professional pencil configurations
+      if (pencilType.includes('B')) {
+        // Soft graphite pencils (2B, 4B, 6B)
+        const softness = pencilType === '6B' ? 0.9 : pencilType === '4B' ? 0.7 : 0.5
+        strokeWidth = brushThickness / 8 * (1 + softness)
+        tension = 0.5 + softness * 0.4
+        shadowBlur = softness * 15 * textureIntensity
+        shadowOpacity = 0.6 * textureIntensity
+        lineCap = 'round'
+      } else if (pencilType.includes('charcoal')) {
+        // Charcoal pencils
+        const charcoalSoftness = pencilType.includes('soft') ? 0.9 : pencilType.includes('medium') ? 0.7 : 0.5
+        strokeWidth = brushThickness / 10 * (1 + charcoalSoftness * 0.3)
+        tension = 0.3 + charcoalSoftness * 0.3
+        shadowBlur = charcoalSoftness * 20 * textureIntensity
+        shadowOpacity = 0.7 * textureIntensity
+        lineCap = 'round'
+        globalCompositeOperation = smudgeFactor > 0.5 ? 'multiply' : 'source-over'
+      } else if (pencilType.includes('mechanical') || pencilType.includes('drafting')) {
+        // Technical pencils
+        strokeWidth = brushThickness / 12
+        tension = 0.1
+        shadowBlur = 0.5
+        shadowOpacity = 0.2
+        lineCap = 'square'
+      } else if (pencilType.includes('watercolor') || pencilType.includes('colored') || pencilType.includes('pastel')) {
+        // Artistic pencils
+        strokeWidth = brushThickness / 9
+        tension = 0.6
+        shadowBlur = 8 * textureIntensity
+        shadowOpacity = 0.4 * textureIntensity
+        lineCap = 'round'
+        if (pencilType.includes('watercolor')) {
+          globalCompositeOperation = 'screen'
+        }
+      } else {
+        // Standard HB or default
+        strokeWidth = brushThickness / 10
+        tension = 0.5
+        shadowBlur = 3 * textureIntensity
+        shadowOpacity = 0.4 * textureIntensity
+      }
+
+      // Apply paper texture effects
+      if (paperTexture === 'rough' || paperTexture === 'canvas') {
+        shadowBlur *= 1.5
+        tension *= 1.2
+      } else if (paperTexture === 'watercolor') {
+        shadowBlur *= 1.8
+        tension *= 0.9
+      }
+    } else {
+      // Legacy tool options for backward compatibility
+      if (toolOption === 'marker') {
+        strokeWidth = brushThickness / 8
+        tension = 0.3
+      } else if (toolOption === 'spray') {
+        strokeWidth = brushThickness / 12
+        tension = 0.8
+        shadowBlur = 8
+        shadowOpacity = 0.3
+      } else if (toolOption === 'calligraphy') {
+        strokeWidth = brushThickness / 6
+        lineCap = 'square'
+        tension = 0.2
+      }
     }
-    
+
     const lineElement = {
       id: generateElementId(),
-      tag: `${tool === 'eraser' ? 'Eraser' : 'Brush'} ${lines.value.length + 1}`,
+      tag: `${tool === 'eraser' ? 'Eraser' : advancedBrushSettings?.pencilType || toolOption || 'Brush'} ${lines.value.length + 1}`,
       tool: tool,
       toolOption: toolOption,
       points: [pos.x, pos.y, pos.x, pos.y],
@@ -82,10 +150,22 @@ export function useCanvasElements() {
       tension: tension,
       lineCap: lineCap,
       lineJoin: 'round',
-      globalCompositeOperation: tool === 'eraser' ? 'destination-out' : 'source-over',
-      perfectDrawEnabled: false
+      globalCompositeOperation: globalCompositeOperation,
+      shadowBlur: shadowBlur,
+      shadowColor: shadowColor,
+      shadowOpacity: shadowOpacity,
+      perfectDrawEnabled: false,
+      // Store advanced brush settings for physics simulation
+      physicsData: advancedBrushSettings ? {
+        pencilType: advancedBrushSettings.pencilType,
+        paperTexture: advancedBrushSettings.paperTexture,
+        textureIntensity: advancedBrushSettings.textureIntensity,
+        smudgeFactor: advancedBrushSettings.smudgeFactor,
+        pressureSensitivity: advancedBrushSettings.pressureSensitivity,
+        layerCount: 0
+      } : null
     }
-    
+
     lines.value.push(lineElement)
     return lineElement
   }
