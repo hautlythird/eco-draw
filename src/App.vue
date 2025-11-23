@@ -125,27 +125,8 @@ const handleToolChange = (tool, option) => {
     }
   }
 
-  // Set current tool
-  currentTool.value = tool
-
-  // Set option or use default
-  if (option) {
-    currentToolOption.value = option
-  } else {
-    // Set default options for tools
-    const defaults = {
-      brush: 'pencil',
-      eraser: 'soft',
-      square: 'rect',
-      circle: 'circle',
-      triangle: 'triangle',
-      text: 'normal',
-      image: 'upload'
-    }
-    if (defaults[tool]) {
-      currentToolOption.value = defaults[tool]
-    }
-  }
+  // Set current tool using the store
+  toolStore.setTool(tool, option)
 
   logger.log(`Active Tool: ${currentTool.value}, Option: ${currentToolOption.value}`)
 }
