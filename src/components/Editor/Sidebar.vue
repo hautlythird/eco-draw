@@ -1,7 +1,6 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
-import { useLayers } from '@/composables/useLayers'
 import ColorWheel from '../ColorPicker/ColorWheel.vue'
 
 const emit = defineEmits(['tool-change', 'canvas-size-change', 'color-change', 'layer-select', 'layer-delete'])
