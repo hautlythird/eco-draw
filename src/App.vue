@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, provide, watch } from 'vue'
 import { useUiStore } from './stores/ui'
+import { useToolStore } from './stores/tool'
 import { storeToRefs } from 'pinia'
 import EditorCanvas from './components/Editor/EditorCanvas.vue'
 import Sidebar from './components/Editor/Sidebar.vue'
@@ -29,6 +30,7 @@ import { logger } from './utils/logger'
 const showSplash = ref(true)
 
 const uiStore = useUiStore()
+const toolStore = useToolStore()
 const {
   showLibrary,
   showShortcuts,
