@@ -1,7 +1,10 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
+import { useUiStore } from '@/stores/ui'
+import { storeToRefs } from 'pinia'
 import ColorWheel from '../ColorPicker/ColorWheel.vue'
+import LayersPanel from './LayersPanel.vue'
 
 const emit = defineEmits(['tool-change', 'canvas-size-change', 'color-change', 'layer-select', 'layer-delete'])
 
