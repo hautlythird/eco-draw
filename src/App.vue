@@ -42,8 +42,7 @@ const {
   showGrid
 } = storeToRefs(uiStore)
 
-const currentTool = ref('brush')
-const currentToolOption = ref('pencil')
+const { currentTool, currentToolOption } = storeToRefs(toolStore)
 const canvasRef = ref(null)
 const canvasSize = ref({ width: 20, height: 15 }) // in meters
 const projectName = ref('')
