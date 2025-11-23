@@ -513,14 +513,25 @@ defineExpose({
         return null
       }
       
-      // Create a temporary canvas for export with validated dimensions
+      // Store original stage transform
+      const originalScale = stage.scaleX()
+      const originalPosition = { x: stage.x(), y: stage.y() }
+      
+      // Temporarily reset stage transform for clean export
+      stage.scale({ x: 1, y: 1 })
+      stage.position({ x: 0, y: 0 })
+      
+      // Create export canvas with proper dimensions
       const exportCanvas = document.createElement('canvas')
-      exportCanvas.width = Math.max(1, Math.floor(width))
-      exportCanvas.height = Math.max(1, Math.floor(height))
+      exportCanvas.width = Math.floor(width)
+      exportCanvas.height = Math.floor(height)
       
       const ctx = exportCanvas.getContext('2d')
       if (!ctx) {
         logger.error('Export failed: Could not get 2D context')
+        // Restore original transform
+        stage.scale({ x: originalScale, y: originalScale })
+        stage.position(originalPosition)
         return null
       }
       
@@ -528,35 +539,30 @@ defineExpose({
       ctx.fillStyle = '#0f0f0f'
       ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height)
       
-      // Get the main canvas and draw only the export area
-      const mainCanvas = stage.toCanvas({
-        x: exportAreaOffsetX.value,
-        y: exportAreaOffsetY.value,
-        width: Math.max(1, Math.floor(exportCanvas.width)),
-        height: Math.max(1, Math.floor(exportCanvas.height)),
-        pixelRatio: 1
+      // Export the full stage first
+      const stageDataURL = stage.toDataURL({ pixelRatio: 1 })
+      
+      // Restore original transform
+      stage.scale({ x: originalScale, y: originalScale })
+      stage.position(originalPosition)
+      
+      // Load the stage image
+      const img = new Image()
+      await new Promise((resolve, reject) => {
+        img.onload = resolve
+        img.onerror = reject
+        img.src = stageDataURL
       })
       
-      // Wait for canvas to be ready
-      if (mainCanvas instanceof Promise) {
-        const resolvedCanvas = await mainCanvas
-        if (!resolvedCanvas || resolvedCanvas.width === 0 || resolvedCanvas.height === 0) {
-          logger.error('Export failed: Invalid main canvas dimensions after promise', {
-            mainCanvas: resolvedCanvas ? { width: resolvedCanvas.width, height: resolvedCanvas.height } : null
-          })
-          return null
-        }
-        ctx.drawImage(resolvedCanvas, 0, 0)
-      } else {
-        // Validate main canvas before drawing
-        if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
-          logger.error('Export failed: Invalid main canvas dimensions', {
-            mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
-          })
-          return null
-        }
-        ctx.drawImage(mainCanvas, 0, 0)
-      }
+      // Draw only the export area from the full stage
+      const offsetX = exportAreaOffsetX.value
+      const offsetY = exportAreaOffsetY.value
+      
+      ctx.drawImage(
+        img,
+        offsetX, offsetY, width, height,  // source rectangle
+        0, 0, width, height                // destination rectangle
+      )
       
       logger.log('Canvas exported successfully', { width: exportCanvas.width, height: exportCanvas.height })
       return exportCanvas
@@ -587,14 +593,25 @@ defineExpose({
         return null
       }
       
-      // Create a temporary canvas for export with validated dimensions
+      // Store original stage transform
+      const originalScale = stage.scaleX()
+      const originalPosition = { x: stage.x(), y: stage.y() }
+      
+      // Temporarily reset stage transform for clean export
+      stage.scale({ x: 1, y: 1 })
+      stage.position({ x: 0, y: 0 })
+      
+      // Create export canvas with proper dimensions
       const exportCanvas = document.createElement('canvas')
-      exportCanvas.width = Math.max(1, Math.floor(width))
-      exportCanvas.height = Math.max(1, Math.floor(height))
+      exportCanvas.width = Math.floor(width)
+      exportCanvas.height = Math.floor(height)
       
       const ctx = exportCanvas.getContext('2d')
       if (!ctx) {
         logger.error('getCanvasDataURL failed: Could not get 2D context')
+        // Restore original transform
+        stage.scale({ x: originalScale, y: originalScale })
+        stage.position(originalPosition)
         return null
       }
       
@@ -602,35 +619,30 @@ defineExpose({
       ctx.fillStyle = '#0f0f0f'
       ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height)
       
-      // Get the main canvas and draw only the export area
-      const mainCanvas = stage.toCanvas({
-        x: exportAreaOffsetX.value,
-        y: exportAreaOffsetY.value,
-        width: Math.max(1, Math.floor(exportCanvas.width)),
-        height: Math.max(1, Math.floor(exportCanvas.height)),
-        pixelRatio: 1
+      // Export the full stage first
+      const stageDataURL = stage.toDataURL({ pixelRatio: 1 })
+      
+      // Restore original transform
+      stage.scale({ x: originalScale, y: originalScale })
+      stage.position(originalPosition)
+      
+      // Load the stage image
+      const img = new Image()
+      await new Promise((resolve, reject) => {
+        img.onload = resolve
+        img.onerror = reject
+        img.src = stageDataURL
       })
       
-      // Wait for canvas to be ready
-      if (mainCanvas instanceof Promise) {
-        const resolvedCanvas = await mainCanvas
-        if (!resolvedCanvas || resolvedCanvas.width === 0 || resolvedCanvas.height === 0) {
-          logger.error('getCanvasDataURL failed: Invalid main canvas dimensions after promise', {
-            mainCanvas: resolvedCanvas ? { width: resolvedCanvas.width, height: resolvedCanvas.height } : null
-          })
-          return null
-        }
-        ctx.drawImage(resolvedCanvas, 0, 0)
-      } else {
-        // Validate main canvas before drawing
-        if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
-          logger.error('getCanvasDataURL failed: Invalid main canvas dimensions', {
-            mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
-          })
-          return null
-        }
-        ctx.drawImage(mainCanvas, 0, 0)
-      }
+      // Draw only the export area from the full stage
+      const offsetX = exportAreaOffsetX.value
+      const offsetY = exportAreaOffsetY.value
+      
+      ctx.drawImage(
+        img,
+        offsetX, offsetY, width, height,  // source rectangle
+        0, 0, width, height                // destination rectangle
+      )
       
       const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png'
       const dataURL = exportCanvas.toDataURL(mimeType, quality)
