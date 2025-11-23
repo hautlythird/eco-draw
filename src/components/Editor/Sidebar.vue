@@ -100,20 +100,25 @@ const updateCanvasSize = () => {
         <span>LIBRARY</span>
       </button>
 
-      <button class="nav-item" :class="{ active: showLayers }" @click="toggleLayers">
+      <button class="nav-item" :class="{ active: showLayers }" @click="uiStore.toggleLayers">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z" fill="currentColor"/>
         </svg>
         <span>LAYERS</span>
       </button>
 
-      <button class="nav-item" :class="{ active: showCanvasSize }" @click="toggleCanvasSize">
+      <button class="nav-item" :class="{ active: showCanvasSize }" @click="uiStore.toggleCanvasSize">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM5 10h5V8H5v2zm0 4h5v-2H5v2zm6-4h8V8h-8v2zm0 4h8v-2h-8v2z" fill="currentColor"/>
         </svg>
         <span>SIZE</span>
       </button>
     </nav>
+
+    <!-- Layers Panel -->
+    <Transition name="slide-panel">
+      <LayersPanel v-if="showLayers" @layer-select="emit('layer-select', $event)" @layer-delete="emit('layer-delete', $event)" />
+    </Transition>
 
 
     <!-- Canvas Size Panel -->
