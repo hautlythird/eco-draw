@@ -12,6 +12,60 @@ const emit = defineEmits(['tool-change', 'canvas-size-change', 'color-change', '
 const isMobileMenuOpen = ref(false)
 
 const { primaryColor, colorVariants } = useTheme()
+const uiStore = useUiStore()
+const { showLayers, showCanvasSize } = storeToRefs(uiStore)
+
+const showColorWheel = ref(false)
+const colorWheelRef = ref(null)
+
+// Canvas size in meters
+const canvasWidth = ref(20)
+const canvasHeight = ref(15)
+
+const currentTime = ref(new Date().toLocaleTimeString('en-US', {
+  hour: 'numeric',
+  minute: '2-digit'
+}))
+
+let timeInterval = null
+
+onMounted(() => {
+  timeInterval = setInterval(() => {
+    currentTime.value = new Date().toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit'
+    })
+  }, 60000)
+})
+
+onUnmounted(() => {
+  if (timeInterval) clearInterval(timeInterval)
+})
+
+const handleColorWheelClick = () => {
+  showColorWheel.value = !showColorWheel.value
+}
+
+const handleColorWheelLeave = () => {
+  // Delay to allow moving to the color wheel panel
+  setTimeout(() => {
+    if (!showColorWheel.value) return
+    showColorWheel.value = false
+  }, 300)
+}
+
+const handleColorChange = (color) => {
+  primaryColor.value = color
+  // Emit color change event to update brush color
+  emit('color-change', color)
+}
+
+const updateCanvasSize = () => {
+  emit('canvas-size-change', {
+    width: canvasWidth.value,
+    height: canvasHeight.value
+  })
+}
 </script>
 
 <template>
