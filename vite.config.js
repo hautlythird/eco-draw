@@ -6,7 +6,7 @@ import { copyFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export default defineConfig({
-  base: '/ecodraw/',
+  base: '/eco-draw/',
   plugins: [
     vue(),
     // Copy SQLite database to public folder
