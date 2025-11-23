@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import { useUiStore } from '@/stores/ui'
 import { storeToRefs } from 'pinia'
