@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed, provide, watch } from 'vue'
+import { useUiStore } from './stores/ui'
+import { storeToRefs } from 'pinia'
 import EditorCanvas from './components/Editor/EditorCanvas.vue'
 import Sidebar from './components/Editor/Sidebar.vue'
 import Toolbar from './components/Editor/Toolbar.vue'
@@ -25,14 +27,19 @@ import { useProjects } from './composables/useProjects'
 import { logger } from './utils/logger'
 
 const showSplash = ref(true)
-const showLibrary = ref(false)
-const showShortcuts = ref(false)
-const showExport = ref(false)
-const showAccessibility = ref(false)
-const showProjects = ref(false)
-const showStats = ref(false)
-const showCalendar = ref(false)
-const showGrid = ref(true)
+
+const uiStore = useUiStore()
+const {
+  showLibrary,
+  showShortcuts,
+  showExport,
+  showAccessibility,
+  showProjects,
+  showStats,
+  showCalendar,
+  showGrid
+} = storeToRefs(uiStore)
+
 const currentTool = ref('brush')
 const currentToolOption = ref('pencil')
 const canvasRef = ref(null)
@@ -44,11 +51,11 @@ const { color: brushColor, thickness: brushThickness, hardness: brushHardness, o
 const { canUndo, canRedo } = useHistory()
 const { primaryColor } = useTheme()
 const { zoomIn, zoomOut, resetZoom } = useZoom()
-const { 
-  currentProjectId, 
+const {
+  currentProjectId,
   currentProject,
   openProjects,
-  saveProject, 
+  saveProject,
   loadProject,
   switchToProject,
   closeProject,
@@ -93,7 +100,7 @@ if (preferences.value.showGrid !== undefined) {
 
 const handleToolChange = (tool, option) => {
   logger.log('Tool change:', tool, 'Option:', option)
-  
+
   // Handle action tools immediately using centralized zoom
   if (tool === 'zoom-in') {
     zoomIn()
@@ -102,24 +109,24 @@ const handleToolChange = (tool, option) => {
     zoomOut()
     return
   } else if (tool === 'library') {
-    showLibrary.value = true
+    uiStore.showLibrary = true
     return
   }
-  
+
   // Handle image tool with options
   if (tool === 'image') {
     if (option === 'upload') {
       handleImageUpload()
       return
     } else if (option === 'plant') {
-      showLibrary.value = true
+      uiStore.showLibrary = true
       return
     }
   }
-  
+
   // Set current tool
   currentTool.value = tool
-  
+
   // Set option or use default
   if (option) {
     currentToolOption.value = option
@@ -138,7 +145,7 @@ const handleToolChange = (tool, option) => {
       currentToolOption.value = defaults[tool]
     }
   }
-  
+
   logger.log(`Active Tool: ${currentTool.value}, Option: ${currentToolOption.value}`)
 }
 
@@ -193,7 +200,7 @@ const handleSave = () => {
   if (canvasRef.value) {
     const data = canvasRef.value.getCanvasData()
     logger.log('Saving canvas data:', data)
-    
+
     // Get project name from user if not set
     let name = projectName.value || currentProject.value?.name
     if (!name) {
@@ -201,17 +208,17 @@ const handleSave = () => {
       if (!name) return // User cancelled
       projectName.value = name
     }
-    
+
     // Save to localStorage
     const projectId = saveProject(data, name)
-    
+
     // Mark as saved
     if (projectId) {
       markSaved(projectId)
-      
+
       // Update in-memory data
       projectCanvasData.value.set(projectId, data)
-      
+
       // Generate and save thumbnail
       try {
         const stage = canvasRef.value.getStage()
@@ -223,7 +230,7 @@ const handleSave = () => {
         logger.error('Failed to generate thumbnail:', error)
       }
     }
-    
+
     // Also download as JSON
     const dataStr = JSON.stringify(data, null, 2)
     const dataBlob = new Blob([dataStr], { type: 'application/json' })
@@ -233,7 +240,7 @@ const handleSave = () => {
     link.download = `${name.replace(/[^a-z0-9]/gi, '_')}-${Date.now()}.json`
     link.click()
     URL.revokeObjectURL(url)
-    
+
     logger.log('Project saved:', name)
   }
 }
@@ -244,14 +251,14 @@ const handleLoadProject = (projectId) => {
     const currentData = canvasRef.value.getCanvasData()
     projectCanvasData.value.set(currentProjectId.value, currentData)
   }
-  
+
   // Load the new project
   const data = loadProject(projectId)
   if (data && canvasRef.value) {
     canvasRef.value.loadCanvas(data)
     projectName.value = currentProject.value?.name || ''
     logger.log('Project loaded:', projectName.value)
-    showProjects.value = false // Close gallery after loading
+    uiStore.showProjects = false // Close gallery after loading
   }
 }
 
@@ -261,7 +268,7 @@ const handleSwitchProject = (projectId) => {
     const currentData = canvasRef.value.getCanvasData()
     projectCanvasData.value.set(currentProjectId.value, currentData)
   }
-  
+
   // Check if project data is already in memory
   if (projectCanvasData.value.has(projectId)) {
     const data = projectCanvasData.value.get(projectId)
@@ -276,7 +283,7 @@ const handleSwitchProject = (projectId) => {
       projectCanvasData.value.set(projectId, data)
     }
   }
-  
+
   projectName.value = currentProject.value?.name || ''
   logger.log('Switched to project:', projectName.value)
 }
@@ -285,7 +292,7 @@ const handleCloseProject = (projectId) => {
   // Remove from memory
   projectCanvasData.value.delete(projectId)
   closeProject(projectId)
-  
+
   // Load the new current project if one exists
   if (currentProjectId.value && currentProjectId.value !== projectId) {
     handleSwitchProject(currentProjectId.value)
@@ -303,20 +310,20 @@ const handleNewProject = () => {
     const currentData = canvasRef.value.getCanvasData()
     projectCanvasData.value.set(currentProjectId.value, currentData)
   }
-  
+
   const newId = createNewProject()
-  
+
   // Clear canvas for new project
   if (canvasRef.value) {
     canvasRef.value.clear()
   }
-  
+
   projectName.value = currentProject.value?.name || ''
   logger.log('New project created')
 }
 
 const handleOpenProjects = () => {
-  showProjects.value = true
+  uiStore.toggleProjects()
 }
 
 const handleCanvasSizeChange = (size) => {
@@ -355,12 +362,12 @@ useKeyboard({
   'i': () => handleToolChange('image', 'upload'),
   'm': () => handleToolChange('move'),
   'g': () => {
-    showGrid.value = !showGrid.value
+    uiStore.toggleGrid()
     preferences.value.showGrid = showGrid.value
   },
-  '?': () => showShortcuts.value = true,
-  'ctrl+e': () => showExport.value = true,
-  'ctrl+shift+a': () => showAccessibility.value = true
+  '?': () => uiStore.toggleShortcuts(),
+  'ctrl+e': () => uiStore.toggleExport(),
+  'ctrl+shift+a': () => uiStore.toggleAccessibility()
 })
 
 // Watch for current project changes
@@ -375,7 +382,7 @@ let changeTimeout = null
 const handleCanvasChange = () => {
   if (currentProjectId.value) {
     markUnsaved(currentProjectId.value)
-    
+
     // Auto-save current state to memory
     clearTimeout(changeTimeout)
     changeTimeout = setTimeout(() => {
@@ -405,18 +412,18 @@ watch(showSplash, (isShowing) => {
 <template>
   <ErrorBoundary>
     <SplashScreen v-if="showSplash" @loaded="showSplash = false" />
-    
+
     <div v-show="!showSplash" class="app">
-    <Sidebar 
+    <Sidebar
       @tool-change="handleToolChange"
       @canvas-size-change="handleCanvasSizeChange"
       @color-change="handleColorChange"
       @layer-select="handleLayerSelect"
       @layer-delete="handleLayerDelete"
     />
-    
+
     <div class="main-content">
-      <Toolbar 
+      <Toolbar
         :current-tool="currentTool"
         :current-tool-option="currentToolOption"
         :can-undo="canUndo()"
@@ -426,22 +433,22 @@ watch(showSplash, (isShowing) => {
         @undo="handleUndo"
         @redo="handleRedo"
         @save="handleSave"
-        @open-projects="handleOpenProjects"
-        @toggle-grid="showGrid = !showGrid; preferences.showGrid = showGrid"
-        @export="showExport = true"
-        @open-shortcuts="showShortcuts = true"
+        @open-projects="uiStore.toggleProjects"
+        @toggle-grid="uiStore.toggleGrid"
+        @export="uiStore.toggleExport"
+        @open-shortcuts="uiStore.toggleShortcuts"
       >
         <template #extra-tools>
-          <button class="tool-btn" @click="showStats = true" title="Garden Dashboard">
+          <button class="tool-btn" @click="uiStore.toggleStats" title="Garden Dashboard">
             📊
           </button>
-          <button class="tool-btn" @click="showCalendar = true" title="Seasonal Timeline">
+          <button class="tool-btn" @click="uiStore.toggleCalendar" title="Seasonal Timeline">
             📅
           </button>
         </template>
       </Toolbar>
-      
-      <EditorCanvas 
+
+      <EditorCanvas
         ref="canvasRef"
         :tool="currentTool"
         :tool-option="currentToolOption"
@@ -460,8 +467,8 @@ watch(showSplash, (isShowing) => {
       @switch-project="handleSwitchProject"
       @close-project="handleCloseProject"
       @new-project="handleNewProject"
-      @open-gallery="handleOpenProjects"
-      @open-library="showLibrary = true"
+      @open-gallery="uiStore.toggleProjects"
+      @open-library="uiStore.toggleLibrary"
     />
 
     <BrushControls
@@ -473,45 +480,45 @@ watch(showSplash, (isShowing) => {
       @color-change="handleColorChange"
     />
 
-    <BotanicalLibrary 
+    <BotanicalLibrary
       v-if="showLibrary"
-      @close="showLibrary = false"
+      @close="uiStore.toggleLibrary"
     />
 
     <GardenStats
       v-if="showStats"
       :plants="canvasRef?.getCanvasData().images || []"
-      @close="showStats = false"
+      @close="uiStore.toggleStats"
     />
 
     <GardenCalendar
       v-if="showCalendar"
       :plants="canvasRef?.getCanvasData().images || []"
-      @close="showCalendar = false"
+      @close="uiStore.toggleCalendar"
     />
 
 
     <ProjectsGallery
       v-if="showProjects"
-      @close="showProjects = false"
+      @close="uiStore.toggleProjects"
       @load-project="handleLoadProject"
     />
 
     <ExportDialog
       v-if="showExport"
       :canvas-ref="canvasRef"
-      @close="showExport = false"
+      @close="uiStore.toggleExport"
     />
 
     <AccessibilityMenu
       v-if="showAccessibility"
-      @close="showAccessibility = false"
+      @close="uiStore.toggleAccessibility"
     />
 
-    
+
     <GridGuide />
 
-     
+
     </div>
   </ErrorBoundary>
 </template>
