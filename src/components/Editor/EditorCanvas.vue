@@ -490,7 +490,7 @@ defineExpose({
   getStage: () => {
     return stageRef.value ? stageRef.value.getStage() : null
   },
-  exportCanvas: () => {
+  exportCanvas: async () => {
     // Export only the area within the neon border (export area)
     if (!stageRef.value) {
       logger.error('Export failed: Stage ref not available')
@@ -532,20 +532,31 @@ defineExpose({
       const mainCanvas = stage.toCanvas({
         x: exportAreaOffsetX.value,
         y: exportAreaOffsetY.value,
-        width: exportCanvas.width,
-        height: exportCanvas.height,
+        width: Math.max(1, Math.floor(exportCanvas.width)),
+        height: Math.max(1, Math.floor(exportCanvas.height)),
         pixelRatio: 1
       })
       
-      // Validate main canvas before drawing
-      if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
-        logger.error('Export failed: Invalid main canvas dimensions', {
-          mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
-        })
-        return null
+      // Wait for canvas to be ready
+      if (mainCanvas instanceof Promise) {
+        const resolvedCanvas = await mainCanvas
+        if (!resolvedCanvas || resolvedCanvas.width === 0 || resolvedCanvas.height === 0) {
+          logger.error('Export failed: Invalid main canvas dimensions after promise', {
+            mainCanvas: resolvedCanvas ? { width: resolvedCanvas.width, height: resolvedCanvas.height } : null
+          })
+          return null
+        }
+        ctx.drawImage(resolvedCanvas, 0, 0)
+      } else {
+        // Validate main canvas before drawing
+        if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
+          logger.error('Export failed: Invalid main canvas dimensions', {
+            mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
+          })
+          return null
+        }
+        ctx.drawImage(mainCanvas, 0, 0)
       }
-      
-      ctx.drawImage(mainCanvas, 0, 0)
       
       logger.log('Canvas exported successfully', { width: exportCanvas.width, height: exportCanvas.height })
       return exportCanvas
@@ -554,7 +565,7 @@ defineExpose({
       return null
     }
   },
-  getCanvasDataURL: (format = 'png', quality = 1) => {
+  getCanvasDataURL: async (format = 'png', quality = 1) => {
     if (!stageRef.value) {
       logger.error('getCanvasDataURL failed: Stage ref not available')
       return null
@@ -595,20 +606,31 @@ defineExpose({
       const mainCanvas = stage.toCanvas({
         x: exportAreaOffsetX.value,
         y: exportAreaOffsetY.value,
-        width: exportCanvas.width,
-        height: exportCanvas.height,
+        width: Math.max(1, Math.floor(exportCanvas.width)),
+        height: Math.max(1, Math.floor(exportCanvas.height)),
         pixelRatio: 1
       })
       
-      // Validate main canvas before drawing
-      if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
-        logger.error('getCanvasDataURL failed: Invalid main canvas dimensions', {
-          mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
-        })
-        return null
+      // Wait for canvas to be ready
+      if (mainCanvas instanceof Promise) {
+        const resolvedCanvas = await mainCanvas
+        if (!resolvedCanvas || resolvedCanvas.width === 0 || resolvedCanvas.height === 0) {
+          logger.error('getCanvasDataURL failed: Invalid main canvas dimensions after promise', {
+            mainCanvas: resolvedCanvas ? { width: resolvedCanvas.width, height: resolvedCanvas.height } : null
+          })
+          return null
+        }
+        ctx.drawImage(resolvedCanvas, 0, 0)
+      } else {
+        // Validate main canvas before drawing
+        if (!mainCanvas || mainCanvas.width === 0 || mainCanvas.height === 0) {
+          logger.error('getCanvasDataURL failed: Invalid main canvas dimensions', {
+            mainCanvas: mainCanvas ? { width: mainCanvas.width, height: mainCanvas.height } : null
+          })
+          return null
+        }
+        ctx.drawImage(mainCanvas, 0, 0)
       }
-      
-      ctx.drawImage(mainCanvas, 0, 0)
       
       const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png'
       const dataURL = exportCanvas.toDataURL(mimeType, quality)

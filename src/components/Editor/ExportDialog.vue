@@ -61,7 +61,7 @@ const handleExport = async () => {
       await handlePDFExport()
     } else {
       // Export PNG/JPG with high quality for garden plans
-      const dataURL = props.canvasRef.getCanvasDataURL(
+      const dataURL = await props.canvasRef.getCanvasDataURL(
         exportFormat.value,
         exportQuality.value / 100
       )
@@ -93,7 +93,7 @@ const handlePDFExport = async () => {
   const { jsPDF } = window.jspdf
   
   // Export canvas as high-quality PNG (same as PNG export)
-  const canvas = props.canvasRef.exportCanvas()
+  const canvas = await props.canvasRef.exportCanvas()
   if (!canvas) {
     throw new Error('Failed to export canvas')
   }
